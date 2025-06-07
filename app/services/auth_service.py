@@ -1,4 +1,3 @@
-# ===== app/services/auth_service.py =====
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
 from app.dependencies import verify_firebase_token

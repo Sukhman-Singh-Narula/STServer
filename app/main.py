@@ -1,6 +1,7 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.utils.firebase_init import initialize_firebase
@@ -33,34 +34,60 @@ app.add_middleware(
     allow_headers=[
         "Accept",
         "Accept-Language",
-        "Content-Language",
+        "Content-Language", 
         "Content-Type",
         "Authorization",
         "X-Requested-With",
         "Origin",
         "Access-Control-Request-Method",
         "Access-Control-Request-Headers",
+        "User-Agent",
+        "Cache-Control",
+        "Pragma",
     ],
     expose_headers=["*"],
     max_age=86400,  # 24 hours preflight cache
 )
 
-# Add a middleware to log CORS requests (for debugging)
+# Add a custom CORS middleware for debugging and extra handling
 @app.middleware("http")
-async def cors_debug_middleware(request, call_next):
-    # Log CORS-related information
+async def enhanced_cors_middleware(request: Request, call_next):
     origin = request.headers.get("origin")
     method = request.method
     
-    if origin:
-        print(f"🌐 CORS Request: {method} from {origin}")
+    # Log all requests for debugging
+    print(f"🌐 {method} Request from origin: {origin}")
     
+    # Handle preflight OPTIONS requests manually
+    if method == "OPTIONS":
+        response = JSONResponse({"message": "OK"})
+        
+        # Add comprehensive CORS headers
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+        else:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Max-Age"] = "86400"
+        
+        print(f"✅ OPTIONS response sent to {origin}")
+        return response
+    
+    # Process the request
     response = await call_next(request)
     
-    # Add additional CORS headers for troubleshooting
+    # Add CORS headers to all responses
     if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin if origin in settings.cors_origins_list or "*" in settings.cors_origins_list else settings.cors_origins_list[0]
-        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Origin"] = origin
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH"
+    response.headers["Access-Control-Allow-Headers"] = "*"
     
     return response
 
@@ -101,11 +128,27 @@ async def root():
         "cors_origins": settings.cors_origins_list
     }
 
-# Add OPTIONS handler for preflight requests
+# Global OPTIONS handler for any missed routes
 @app.options("/{path:path}")
-async def options_handler(path: str):
-    """Handle preflight OPTIONS requests"""
-    return {"message": "OK"}
+async def global_options_handler(path: str, request: Request):
+    """Handle preflight OPTIONS requests for any path"""
+    origin = request.headers.get("origin")
+    print(f"🔧 Global OPTIONS handler for /{path} from {origin}")
+    
+    response = JSONResponse({"message": "OK"})
+    
+    # Add comprehensive CORS headers
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Max-Age"] = "86400"
+    
+    return response
 
 if __name__ == "__main__":
     import uvicorn

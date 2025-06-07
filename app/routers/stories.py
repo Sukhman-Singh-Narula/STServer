@@ -1,5 +1,4 @@
-# ===== app/routers/stories.py =====
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Response
 from app.models.story import StoryPromptRequest, SystemPromptUpdate
 from app.services.story_service import StoryService
 from app.services.media_service import MediaService
@@ -14,16 +13,45 @@ from app.config import settings
 router = APIRouter(prefix="/stories", tags=["stories"])
 
 # Initialize services
-user_service = UserService()
-groq_client = groq.Groq(api_key=settings.groq_api_key)
-openai_client = OpenAI(api_key=settings.openai_api_key)
-story_service = StoryService(groq_client, user_service)
-media_service = MediaService(openai_client)
-storage_service = StorageService()
+def get_user_service():
+    return UserService()
+
+def get_groq_client():
+    return groq.Groq(api_key=settings.groq_api_key)
+
+def get_openai_client():
+    return OpenAI(api_key=settings.openai_api_key)
+
+def get_story_service(
+    groq_client: groq.Groq = Depends(get_groq_client),
+    user_service: UserService = Depends(get_user_service)
+):
+    return StoryService(groq_client, user_service)
+
+def get_media_service(openai_client: OpenAI = Depends(get_openai_client)):
+    return MediaService(openai_client)
+
+def get_storage_service():
+    return StorageService()
+
+def add_cors_headers(response: Response):
+    """Add CORS headers to response"""
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
 
 @router.post("/generate")
-async def generate_story(request: StoryPromptRequest):
+async def generate_story(
+    request: StoryPromptRequest,
+    response: Response,
+    story_service: StoryService = Depends(get_story_service),
+    media_service: MediaService = Depends(get_media_service),
+    storage_service: StorageService = Depends(get_storage_service)
+):
     """Main endpoint to generate a complete story with media"""
+    add_cors_headers(response)
+    
     try:
         # Verify Firebase token
         user_info = await verify_firebase_token(request.firebase_token)
@@ -69,7 +97,7 @@ async def generate_story(request: StoryPromptRequest):
             })
             # Add audio segment
             segments.append({
-                "type": "audio",
+                "type": "audio", 
                 "url": scene.audio_url,
                 "start": scene.start_time
             })
@@ -92,8 +120,14 @@ async def generate_story(request: StoryPromptRequest):
         raise HTTPException(status_code=500, detail=f"Story generation failed: {str(e)}")
 
 @router.post("/system-prompt")
-async def update_system_prompt(request: SystemPromptUpdate):
+async def update_system_prompt(
+    request: SystemPromptUpdate,
+    response: Response,
+    user_service: UserService = Depends(get_user_service)
+):
     """Update system prompt for a user"""
+    add_cors_headers(response)
+    
     try:
         user_info = await verify_firebase_token(request.firebase_token)
         user_id = user_info['uid']
@@ -110,8 +144,14 @@ async def update_system_prompt(request: SystemPromptUpdate):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{user_token}")
-async def get_user_stories(user_token: str):
+async def get_user_stories(
+    user_token: str,
+    response: Response,
+    storage_service: StorageService = Depends(get_storage_service)
+):
     """Get all stories for a user"""
+    add_cors_headers(response)
+    
     try:
         user_info = await verify_firebase_token(user_token)
         user_id = user_info['uid']
@@ -121,3 +161,11 @@ async def get_user_stories(user_token: str):
         
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.options("/generate")
+@router.options("/system-prompt")
+@router.options("/{user_token}")
+async def stories_options(response: Response):
+    """Handle preflight OPTIONS requests for stories endpoints"""
+    add_cors_headers(response)
+    return {"message": "OK"}

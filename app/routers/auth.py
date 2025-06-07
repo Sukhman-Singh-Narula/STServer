@@ -46,7 +46,7 @@ async def delete_user_profile(firebase_token: str, response: Response, auth_serv
 
 @router.post("/verify-token")
 async def verify_token_endpoint(firebase_token: str, response: Response, auth_service: AuthService = Depends(get_auth_service)):
-    """Verify Firebase token and return user info"""
+    """Verify Firebase token and return user info - expects just the token string"""
     add_cors_headers(response)
     return await auth_service.verify_token(firebase_token)
 
