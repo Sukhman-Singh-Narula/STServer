@@ -2,6 +2,7 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import json
 
 from app.config import settings
 from app.utils.firebase_init import initialize_firebase
@@ -28,68 +29,83 @@ app = FastAPI(
 # Enhanced CORS middleware for React Native compatibility
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=["*"],  # Allow all origins for debugging
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
-    allow_headers=[
-        "Accept",
-        "Accept-Language",
-        "Content-Language", 
-        "Content-Type",
-        "Authorization",
-        "X-Requested-With",
-        "Origin",
-        "Access-Control-Request-Method",
-        "Access-Control-Request-Headers",
-        "User-Agent",
-        "Cache-Control",
-        "Pragma",
-    ],
+    allow_headers=["*"],  # Allow all headers
     expose_headers=["*"],
     max_age=86400,  # 24 hours preflight cache
 )
 
-# Add a custom CORS middleware for debugging and extra handling
+# ENHANCED DEBUG MIDDLEWARE
 @app.middleware("http")
-async def enhanced_cors_middleware(request: Request, call_next):
-    origin = request.headers.get("origin")
-    method = request.method
+async def debug_middleware(request: Request, call_next):
+    print(f"\n🌐 === INCOMING REQUEST ===")
+    print(f"Method: {request.method}")
+    print(f"URL: {request.url}")
+    print(f"Headers: {dict(request.headers)}")
     
-    # Log all requests for debugging
-    print(f"🌐 {method} Request from origin: {origin}")
+    # Log request body for POST requests
+    if request.method in ["POST", "PUT", "PATCH"]:
+        # Read the body (this consumes it, so we need to reconstruct the request)
+        body = await request.body()
+        print(f"Body (raw bytes): {body}")
+        print(f"Body (length): {len(body)}")
+        
+        if body:
+            try:
+                body_str = body.decode('utf-8')
+                print(f"Body (decoded): {body_str}")
+                
+                # Try to parse as JSON
+                try:
+                    body_json = json.loads(body_str)
+                    print(f"Body (parsed JSON): {body_json}")
+                except json.JSONDecodeError:
+                    print(f"Body (not valid JSON): {body_str}")
+            except UnicodeDecodeError:
+                print(f"Body (binary data): {body[:100]}...")
+        else:
+            print("Body: Empty")
+        
+        # Reconstruct request with body
+        from fastapi import Request as FastAPIRequest
+        from starlette.requests import Request as StarletteRequest
+        
+        # Create a new request with the body
+        receive = request._receive
+        
+        async def new_receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+        
+        # Replace the receive callable
+        request._receive = new_receive
     
-    # Handle preflight OPTIONS requests manually
-    if method == "OPTIONS":
+    # Handle preflight OPTIONS requests
+    if request.method == "OPTIONS":
+        print("✅ Handling OPTIONS preflight request")
         response = JSONResponse({"message": "OK"})
         
         # Add comprehensive CORS headers
-        if origin:
-            response.headers["Access-Control-Allow-Origin"] = origin
-        else:
-            response.headers["Access-Control-Allow-Origin"] = "*"
-            
+        response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH"
         response.headers["Access-Control-Allow-Headers"] = "*"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Max-Age"] = "86400"
         
-        print(f"✅ OPTIONS response sent to {origin}")
+        print(f"✅ OPTIONS response headers: {dict(response.headers)}")
         return response
     
     # Process the request
-    response = await call_next(request)
-    
-    # Add CORS headers to all responses
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
-    else:
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    
-    return response
+    try:
+        response = await call_next(request)
+        print(f"✅ Response status: {response.status_code}")
+        return response
+    except Exception as e:
+        print(f"❌ Request processing error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 # NOW we can safely import routers (Firebase is already initialized)
 from app.routers import auth, health
@@ -107,7 +123,7 @@ except ImportError as e:
     print(f"⚠️ Some routers could not be loaded: {str(e)}")
     print("📝 Basic functionality will still work")
 
-# Startup event (now mainly for logging)
+# Startup event
 @app.on_event("startup")
 async def startup_event():
     """Log startup completion and CORS configuration"""
@@ -132,17 +148,12 @@ async def root():
 @app.options("/{path:path}")
 async def global_options_handler(path: str, request: Request):
     """Handle preflight OPTIONS requests for any path"""
-    origin = request.headers.get("origin")
-    print(f"🔧 Global OPTIONS handler for /{path} from {origin}")
+    print(f"🔧 Global OPTIONS handler for /{path}")
     
     response = JSONResponse({"message": "OK"})
     
     # Add comprehensive CORS headers
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
-    else:
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        
+    response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH"
     response.headers["Access-Control-Allow-Headers"] = "*"
     response.headers["Access-Control-Allow-Credentials"] = "true"
