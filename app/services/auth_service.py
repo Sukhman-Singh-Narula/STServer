@@ -1,3 +1,4 @@
+# File: app/services/auth_service.py - FIXED VERSION
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
 from app.dependencies import verify_firebase_token
@@ -19,9 +20,11 @@ class AuthService:
             # Check if user already exists
             existing_profile = await self.user_service.get_user_profile(user_id)
             if existing_profile:
+                # FIXED: Instead of failing, return success with existing profile
+                print(f"✅ User {user_id} already has profile, returning existing data")
                 return AuthResponse(
-                    success=False,
-                    message="User profile already exists. Use update endpoint to modify.",
+                    success=True,  # CHANGED: Set to True since profile exists
+                    message="User profile found. Welcome back!",  # CHANGED: Friendlier message
                     user_id=user_id,
                     profile=existing_profile
                 )

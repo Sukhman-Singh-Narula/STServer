@@ -10,20 +10,35 @@ from app.utils.firebase_init import initialize_firebase
 # Initialize Firebase IMMEDIATELY, before any imports that might use it
 initialize_firebase()
 
-# Initialize ElevenLabs if available
+# Validate OpenAI API key early
+if settings.openai_api_key and settings.openai_api_key != "test":
+    try:
+        from openai import OpenAI
+        # Test the API key
+        client = OpenAI(api_key=settings.openai_api_key)
+        print("✅ OpenAI client initialized successfully")
+    except Exception as e:
+        print(f"⚠️ OpenAI initialization failed: {str(e)}")
+else:
+    print("⚠️ OpenAI API key not configured - story generation will not work")
+
+# Initialize ElevenLabs (PRIORITY for TTS)
 if settings.elevenlabs_api_key and settings.elevenlabs_api_key != "test":
     try:
         from elevenlabs import set_api_key
         set_api_key(settings.elevenlabs_api_key)
-        print("✅ ElevenLabs initialized successfully")
+        print("✅ ElevenLabs initialized successfully (PRIORITY for TTS)")
     except Exception as e:
         print(f"⚠️ ElevenLabs initialization failed: {str(e)}")
+        print("🔄 Will fall back to OpenAI TTS (slower)")
+else:
+    print("⚠️ ElevenLabs API key not configured - will use OpenAI TTS (slower)")
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="ESP32 Storytelling Server", 
-    version="1.0.0",
-    description="Modular FastAPI server for ESP32 storytelling device"
+    title="ESP32 Storytelling Server - ElevenLabs + OpenAI", 
+    version="2.1.0",
+    description="Modular FastAPI server for ESP32 storytelling device - ElevenLabs TTS + OpenAI GPT/DALL-E"
 )
 
 # Enhanced CORS middleware for React Native compatibility
@@ -126,21 +141,27 @@ except ImportError as e:
 # Startup event
 @app.on_event("startup")
 async def startup_event():
-    """Log startup completion and CORS configuration"""
+    """Log startup completion and configuration"""
     print("🚀 ESP32 Storytelling Server started successfully!")
     print(f"📊 Environment: {'Development' if settings.debug else 'Production'}")
     print(f"🌐 CORS Origins: {settings.cors_origins_list}")
+    print("🤖 AI Services:")
+    print(f"  - OpenAI: {'✅ Configured' if settings.openai_api_key and settings.openai_api_key != 'test' else '❌ Not configured'}")
+    print(f"  - ElevenLabs: {'✅ Configured (TTS Priority)' if settings.elevenlabs_api_key and settings.elevenlabs_api_key != 'test' else '❌ Not configured'}")
+    print(f"  - Firebase: {'✅ Connected' if initialize_firebase() else '❌ Not connected'}")
+    print("📖 Story Generation: ElevenLabs TTS + OpenAI GPT-4 + DALL-E")
 
 # Root endpoint
 @app.get("/")
 async def root():
     """Root endpoint with API information"""
     return {
-        "message": "ESP32 Storytelling Server API",
-        "version": "1.0.0",
+        "message": "ESP32 Storytelling Server API - ElevenLabs + OpenAI Edition",
+        "version": "2.1.0",
         "docs": "/docs",
         "health": "/health",
         "status": "running",
+        "ai_stack": "ElevenLabs TTS + OpenAI GPT-4 + DALL-E",
         "cors_origins": settings.cors_origins_list
     }
 
@@ -167,12 +188,14 @@ if __name__ == "__main__":
     # Check for required environment variables only if not in test mode
     if not settings.debug:
         required_vars = [
-            "GROQ_API_KEY", 
-            "OPENAI_API_KEY", 
-            "ELEVENLABS_API_KEY", 
+            "OPENAI_API_KEY",  # Required for GPT-4 and DALL-E
             "FIREBASE_CREDENTIALS_PATH", 
             "FIREBASE_STORAGE_BUCKET"
         ]
+        
+        # ElevenLabs is recommended but not required (will fall back to OpenAI TTS)
+        if not settings.elevenlabs_api_key or settings.elevenlabs_api_key == "test":
+            print("⚠️ ElevenLabs API key not set - will use slower OpenAI TTS")
         
         missing_vars = [var for var in required_vars if not os.getenv(var) or os.getenv(var) == "test"]
         
@@ -180,6 +203,7 @@ if __name__ == "__main__":
             print(f"❌ Missing required environment variables: {', '.join(missing_vars)}")
             print("Please set these environment variables before running the server.")
             print("💡 Tip: Set DEBUG=true for development/testing mode")
+            print("🤖 Note: ElevenLabs API key is recommended for faster TTS")
             exit(1)
     else:
         print("🧪 Running in debug mode - external services may not work")

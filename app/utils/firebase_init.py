@@ -1,3 +1,4 @@
+# ===== app/utils/firebase_init.py - FIXED VERSION =====
 import firebase_admin
 from firebase_admin import credentials, storage, firestore
 from app.config import settings
@@ -8,7 +9,7 @@ _storage_bucket = None
 _firebase_initialized = False
 
 def initialize_firebase():
-    """Initialize Firebase Admin SDK"""
+    """Initialize Firebase Admin SDK with proper bucket configuration"""
     global _firebase_initialized
     
     if _firebase_initialized:
@@ -17,8 +18,21 @@ def initialize_firebase():
     if not firebase_admin._apps:
         try:
             cred = credentials.Certificate(settings.firebase_credentials_path)
+            
+            # Use bucket name exactly as specified in .env file
+            bucket_name = settings.firebase_storage_bucket
+            
+            # Only remove gs:// prefix if present (keep everything else as-is)
+            if bucket_name.startswith('gs://'):
+                bucket_name = bucket_name.replace('gs://', '')
+            
+            # ❌ REMOVED: Don't change .firebasestorage.app to .appspot.com
+            # This was breaking the working bucket name!
+            
+            print(f"🔧 Initializing Firebase with bucket: {bucket_name}")
+            
             firebase_admin.initialize_app(cred, {
-                'storageBucket': settings.firebase_storage_bucket
+                'storageBucket': bucket_name
             })
             _firebase_initialized = True
             print("✅ Firebase initialized successfully")
@@ -61,8 +75,10 @@ def get_storage_bucket():
     if _storage_bucket is None:
         try:
             _storage_bucket = storage.bucket()
+            print(f"✅ Storage bucket connected: {_storage_bucket.name}")
         except ValueError as e:
             print(f"⚠️ Storage bucket creation failed: {str(e)}")
+            print(f"💡 Check FIREBASE_STORAGE_BUCKET in .env file")
             return None
         except Exception as e:
             print(f"⚠️ Unexpected error creating storage bucket: {str(e)}")
@@ -78,3 +94,17 @@ def reset_firebase_clients():
     global _firestore_client, _storage_bucket
     _firestore_client = None
     _storage_bucket = None
+
+def test_storage_connection():
+    """Test Firebase Storage connection"""
+    try:
+        bucket = get_storage_bucket()
+        if bucket:
+            print(f"✅ Storage test successful: {bucket.name}")
+            return True
+        else:
+            print("❌ Storage test failed: No bucket available")
+            return False
+    except Exception as e:
+        print(f"❌ Storage test failed: {str(e)}")
+        return False
