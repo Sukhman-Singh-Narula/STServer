@@ -1,10 +1,11 @@
-# ===== app/services/media_service.py - FIXED DALL-E IMAGE HANDLING =====
+# ===== app/services/media_service.py - UPDATED WITH GRAYSCALE CONVERSION =====
 import io
 import base64
 from typing import Union
 from fastapi import HTTPException
 from openai import OpenAI
 from app.config import settings
+from PIL import Image
 
 class MediaService:
     def __init__(self, openai_client: OpenAI):
@@ -67,10 +68,45 @@ class MediaService:
                 detail=f"Audio generation failed for scene {scene_number}: {str(e)}"
             )
     
-    async def generate_image(self, visual_prompt: str, scene_number: int) -> bytes:
-        """Generate image using OpenAI DALL-E and return image data directly"""
+    def convert_image_to_grayscale(self, image_data: bytes) -> bytes:
+        """Convert image to grayscale using PIL"""
         try:
-            print(f"🖼️ Generating image for scene {scene_number}")
+            print(f"🎨 Converting image to grayscale...")
+            
+            # Load image from bytes
+            image = Image.open(io.BytesIO(image_data))
+            
+            # Convert to grayscale
+            grayscale_image = image.convert('L')
+            
+            # Save back to bytes
+            output_buffer = io.BytesIO()
+            
+            # Determine format from original image
+            format = image.format if image.format else 'JPEG'
+            if format not in ['JPEG', 'PNG']:
+                format = 'JPEG'  # Default to JPEG for unsupported formats
+            
+            # Save grayscale image
+            if format == 'JPEG':
+                grayscale_image.save(output_buffer, format='JPEG', quality=85, optimize=True)
+            else:
+                grayscale_image.save(output_buffer, format=format, optimize=True)
+            
+            grayscale_data = output_buffer.getvalue()
+            
+            print(f"✅ Image converted to grayscale: {len(image_data)} → {len(grayscale_data)} bytes")
+            return grayscale_data
+            
+        except Exception as e:
+            print(f"❌ Grayscale conversion failed: {str(e)}")
+            print(f"🔄 Returning original image data")
+            return image_data  # Return original if conversion fails
+    
+    async def generate_image(self, visual_prompt: str, scene_number: int) -> bytes:
+        """Generate image using OpenAI DALL-E at 960x540 and convert to grayscale"""
+        try:
+            print(f"🖼️ Generating image for scene {scene_number} at {settings.image_size}")
             
             # Enhance the prompt for children's book style
             enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
@@ -79,7 +115,7 @@ class MediaService:
             response = self.openai_client.images.generate(
                 model="dall-e-3",
                 prompt=enhanced_prompt,
-                size=settings.image_size,
+                size=settings.image_size,  # Now 960x540
                 quality="standard",
                 n=1,
                 response_format="b64_json"  # Get base64 data instead of URL
@@ -89,8 +125,13 @@ class MediaService:
             image_b64 = response.data[0].b64_json
             image_data = base64.b64decode(image_b64)
             
-            print(f"✅ Image generated for scene {scene_number}: {len(image_data)} bytes")
-            return image_data
+            print(f"✅ Color image generated for scene {scene_number}: {len(image_data)} bytes")
+            
+            # Convert to grayscale
+            grayscale_image_data = self.convert_image_to_grayscale(image_data)
+            
+            print(f"✅ Final grayscale image ready for scene {scene_number}: {len(grayscale_image_data)} bytes")
+            return grayscale_image_data
             
         except Exception as e:
             print(f"❌ DALL-E error for scene {scene_number}: {str(e)}")
@@ -107,7 +148,7 @@ class MediaService:
                 )
     
     async def generate_image_url_fallback(self, visual_prompt: str, scene_number: int) -> bytes:
-        """Fallback: Generate image with URL method and immediately download"""
+        """Fallback: Generate image with URL method, download, and convert to grayscale"""
         import httpx
         
         try:
@@ -116,7 +157,7 @@ class MediaService:
             response = self.openai_client.images.generate(
                 model="dall-e-3",
                 prompt=enhanced_prompt,
-                size=settings.image_size,
+                size=settings.image_size,  # Now 960x540
                 quality="standard",
                 n=1,
                 response_format="url"
@@ -132,7 +173,11 @@ class MediaService:
                 
                 image_data = download_response.content
                 print(f"✅ Fallback download successful: {len(image_data)} bytes")
-                return image_data
+                
+                # Convert to grayscale
+                grayscale_image_data = self.convert_image_to_grayscale(image_data)
+                
+                return grayscale_image_data
                 
         except Exception as e:
             print(f"❌ Fallback method failed: {str(e)}")

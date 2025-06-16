@@ -1,4 +1,4 @@
-# ===== app/services/storage_service.py - UPDATED FOR DIRECT IMAGE DATA =====
+# ===== app/services/storage_service.py - UPDATED FOR GRAYSCALE IMAGES =====
 import tempfile
 import io
 from datetime import datetime
@@ -64,12 +64,12 @@ class StorageService:
             raise HTTPException(status_code=500, detail=error_msg)
     
     async def upload_image_data(self, image_data: bytes, story_id: str, scene_number: int) -> str:
-        """Upload image data directly to Firebase Storage (no URL download needed)"""
+        """Upload grayscale image data directly to Firebase Storage"""
         try:
             if not self.bucket:
                 raise HTTPException(status_code=503, detail="Firebase Storage not available")
             
-            print(f"📤 Uploading image data: {len(image_data)} bytes")
+            print(f"📤 Uploading grayscale image data: {len(image_data)} bytes")
             
             # Validate image data
             if len(image_data) < 1000:  # Less than 1KB is probably an error
@@ -82,15 +82,16 @@ class StorageService:
             if image_data.startswith(b'\x89PNG'):
                 content_type = "image/png"
                 file_extension = "png"
-                print(f"🖼️ Detected PNG format")
+                print(f"🖼️ Detected PNG format (grayscale)")
             elif image_data.startswith(b'\xff\xd8'):
                 content_type = "image/jpeg"
                 file_extension = "jpg"
-                print(f"🖼️ Detected JPEG format")
+                print(f"🖼️ Detected JPEG format (grayscale)")
             else:
-                print(f"⚠️ Unknown image format, assuming JPEG")
+                print(f"⚠️ Unknown image format, assuming JPEG (grayscale)")
             
-            filename = f"stories/{story_id}/images/scene_{scene_number}.{file_extension}"
+            # Use _grayscale suffix to indicate the image has been processed
+            filename = f"stories/{story_id}/images/scene_{scene_number}_grayscale.{file_extension}"
             blob = self.bucket.blob(filename)
             
             # Upload image data
@@ -99,7 +100,7 @@ class StorageService:
             
             # Verify upload
             if blob.exists():
-                print(f"✅ Image uploaded successfully: {blob.public_url}")
+                print(f"✅ Grayscale image uploaded successfully: {blob.public_url}")
                 return blob.public_url
             else:
                 raise Exception("Upload completed but file verification failed")
@@ -107,7 +108,7 @@ class StorageService:
         except HTTPException:
             raise
         except Exception as e:
-            error_msg = f"Image upload failed for scene {scene_number}: {str(e)}"
+            error_msg = f"Grayscale image upload failed for scene {scene_number}: {str(e)}"
             print(f"❌ {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
     
@@ -144,7 +145,7 @@ class StorageService:
                 response.raise_for_status()
                 image_data = response.content
                 
-                # Now use the direct upload method
+                # Now use the direct upload method (which will handle grayscale)
                 return await self.upload_image_data(image_data, story_id, scene_number)
             
         except HTTPException:
@@ -188,7 +189,8 @@ class StorageService:
                 'status': 'completed',
                 'total_scenes': manifest.get('total_scenes', 0),
                 'total_duration': manifest.get('total_duration', 0),
-                'generation_method': 'elevenlabs_openai_base64',  # Updated method
+                'generation_method': 'elevenlabs_openai_grayscale_960x540',  # Updated method identifier
+                'image_format': 'grayscale_960x540',  # New field to track image format
                 'scenes_data': manifest.get('scenes', [])
             }
             
@@ -233,6 +235,7 @@ class StorageService:
                     'total_scenes': story_data.get('total_scenes', 0),
                     'total_duration': story_data.get('total_duration', 0),
                     'status': story_data.get('status', 'unknown'),
+                    'image_format': story_data.get('image_format', 'unknown'),  # Include image format info
                     'thumbnail_url': None
                 }
                 
@@ -248,6 +251,41 @@ class StorageService:
         except Exception as e:
             print(f"❌ Error fetching user stories: {str(e)}")
             return []
+    
+    async def get_story_details(self, story_id: str) -> Dict[str, Any]:
+        """Get complete story details including all scenes data"""
+        try:
+            if not self.db:
+                raise HTTPException(status_code=503, detail="Firestore not available")
+            
+            doc_ref = self.db.collection('stories').document(story_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            else:
+                raise HTTPException(status_code=404, detail="Story not found")
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error fetching story details: {str(e)}")
+    
+    async def update_story_status(self, story_id: str, status: str):
+        """Update story playback status"""
+        try:
+            if not self.db:
+                print("⚠️ Firestore not available - skipping status update")
+                return
+            
+            doc_ref = self.db.collection('stories').document(story_id)
+            doc_ref.update({
+                'playback_status': status,
+                'last_played': datetime.utcnow()
+            })
+            
+        except Exception as e:
+            print(f"⚠️ Failed to update story status: {str(e)}")
     
     def test_storage_access(self):
         """Test Firebase Storage access"""
