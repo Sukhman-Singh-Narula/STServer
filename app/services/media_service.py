@@ -148,37 +148,49 @@ class MediaService:
                 )
     
     async def generate_image_url_fallback(self, visual_prompt: str, scene_number: int) -> bytes:
-        """Fallback: Generate image with URL method, download, and convert to grayscale"""
+        """Fallback: Generate image with URL method, download, resize to 960x540, and convert to grayscale"""
         import httpx
-        
+        from PIL import Image
+        from io import BytesIO
+
         try:
             enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
             
             response = self.openai_client.images.generate(
                 model="dall-e-3",
                 prompt=enhanced_prompt,
-                size=settings.image_size,  # Now 960x540
+                size="1792x1024",  # Use larger size to ensure quality
                 quality="standard",
                 n=1,
                 response_format="url"
             )
-            
+
             image_url = response.data[0].url
             print(f"🔗 Generated URL, attempting immediate download...")
-            
+
             # Immediately download with aggressive timeout settings
             async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
                 download_response = await client.get(image_url)
                 download_response.raise_for_status()
-                
                 image_data = download_response.content
                 print(f"✅ Fallback download successful: {len(image_data)} bytes")
-                
+
+                # Open image with PIL
+                img = Image.open(BytesIO(image_data))
+
+                # Resize to 960x540 without cropping
+                img_resized = img.resize((960, 540), Image.LANCZOS)
+
                 # Convert to grayscale
-                grayscale_image_data = self.convert_image_to_grayscale(image_data)
-                
-                return grayscale_image_data
-                
+                grayscale_img = img_resized.convert("L")
+
+                # Save to bytes
+                output_bytes = BytesIO()
+                grayscale_img.save(output_bytes, format="PNG")
+                output_bytes.seek(0)
+
+                return output_bytes.read()
+
         except Exception as e:
             print(f"❌ Fallback method failed: {str(e)}")
             raise e

@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Story settings
     max_scenes: int = 6
     audio_format: str = "mp3"
-    image_size: str = "960x540"  # Changed from 1024x1024 to 960x540
+    image_size: str = "1792x1024"  # Changed from 1024x1024 to 960x540
     
     # CORS settings - Fixed to include React Native port 8081
     cors_origins: str = "*"
