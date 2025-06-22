@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # elevenlabs_api_key: str = ""  # Removed - using OpenAI TTS only
     
     # Story settings
-    max_scenes: int = 6
+    max_scenes: int = 5
     audio_format: str = "mp3"
     image_size: str = "1792x1024"  # Keep original size (not smaller for speed)
     
