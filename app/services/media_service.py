@@ -118,7 +118,7 @@ class MediaService:
                             response = self.openai_client.images.generate(
                                 model="dall-e-2",  # Much faster than DALL-E 3
                                 prompt=enhanced_prompt,
-                                size='1792x1024',  # Keep original size (1792x1024)
+                                size='1024x1024',  # Keep original size (1024x1024)
                                 n=1,
                                 response_format="b64_json"  # Get base64 data instead of URL
                             )
@@ -310,7 +310,7 @@ class MediaService:
             response = self.openai_client.images.generate(
                 model="dall-e-2",  # Much faster than DALL-E 3
                 prompt=enhanced_prompt,
-                size='1792x1024',  # Keep original size (1792x1024 or 960x540)
+                size='1024x1024',  # Keep original size (1024x1024 or 960x540)
                 n=1,
                 response_format="b64_json"  # Get base64 data instead of URL
             )
@@ -359,7 +359,7 @@ class MediaService:
             response = self.openai_client.images.generate(
                 model="dall-e-2",  # Use DALL-E 2 for speed
                 prompt=enhanced_prompt,
-                size='1792x1024',  # Keep original size
+                size='1024x1024',  # Keep original size
                 n=1,
                 response_format="url"
             )
@@ -399,7 +399,7 @@ class MediaService:
             response = self.openai_client.images.generate(
                 model="dall-e-3",
                 prompt=enhanced_prompt,
-                size='1792x1024',  # Keep original size
+                size='1024x1024',  # Keep original size
                 quality="standard",
                 n=1,
                 response_format="url"
