@@ -10,12 +10,32 @@ class Settings(BaseSettings):
     # API Keys
     groq_api_key: str = ""
     openai_api_key: str = ""
-    elevenlabs_api_key: str = ""
+    # elevenlabs_api_key: str = ""  # Removed - using OpenAI TTS only
     
     # Story settings
     max_scenes: int = 6
     audio_format: str = "mp3"
-    image_size: str = "1792x1024"  # Changed from 1024x1024 to 960x540
+    image_size: str = "1792x1024"  # Keep original size (not smaller for speed)
+    
+    # Performance optimization settings
+    max_concurrent_scenes: int = 3  # Process 3 scenes in parallel
+    use_dalle_2_for_speed: bool = True  # Always use DALL-E 2 for speed
+    enable_batch_audio: bool = True  # Enable batch OpenAI TTS generation
+    enable_batch_images: bool = True  # Enable batch DALL-E 2 image generation
+    enable_parallel_uploads: bool = True  # Enable parallel Firebase uploads
+    
+    # Audio optimization settings
+    audio_generation_timeout: int = 30  # Seconds per audio file
+    batch_audio_timeout: int = 120  # Seconds for entire batch (OpenAI TTS only)
+    
+    # Image optimization settings
+    image_generation_timeout: int = 45  # Seconds per image (DALL-E 2 is faster than DALL-E 3)
+    batch_image_timeout: int = 180  # Seconds for entire image batch (DALL-E 2)
+    dalle_2_size: str = "1024x1024"  # DALL-E 2 max size, will be resized to image_size
+    
+    # Upload optimization settings
+    upload_timeout: int = 30  # Seconds per upload
+    parallel_upload_timeout: int = 60  # Seconds for parallel uploads
     
     # CORS settings - Fixed to include React Native port 8081
     cors_origins: str = "*"
@@ -59,6 +79,13 @@ class Settings(BaseSettings):
             return ["*"]
             
         return all_origins
+    
+    @property
+    def effective_image_size(self) -> str:
+        """Get effective image size - always use DALL-E 2 optimized size"""
+        # DALL-E 2 supports: 256x256, 512x512, 1024x1024
+        # We'll use 1024x1024 and resize to target size if needed
+        return "1024x1024"
     
     class Config:
         env_file = ".env"

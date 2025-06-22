@@ -1,4 +1,5 @@
-# ===== app/routers/stories.py - UPDATED FOR BASE64 IMAGE HANDLING =====
+# ===== app/routers/stories.py - OPTIMIZED WITH PARALLEL PROCESSING =====
+import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Response
 from app.models.story import StoryPromptRequest, SystemPromptUpdate
 from app.services.story_service import StoryService
@@ -38,30 +39,38 @@ def add_cors_headers(response: Response):
     response.headers["Access-Control-Allow-Headers"] = "*"
     response.headers["Access-Control-Allow-Credentials"] = "true"
 
-async def process_scene_with_base64_images(scene, story_id, media_service, storage_service):
-    """Process a single scene with base64 image handling (no URL expiration issues)"""
+async def process_scene_optimized(scene, story_id, media_service, storage_service, scene_texts, scene_index):
+    """Process a single scene with optimized parallel operations"""
     print(f"\n🎨 Processing scene {scene.scene_number}: {scene.text[:50]}...")
     
     try:
-        # Step 1: Generate audio (fast with ElevenLabs)
-        print(f"🎵 Generating audio for scene {scene.scene_number}...")
-        audio_data = await media_service.generate_audio(scene.text, scene.scene_number)
-        print(f"✅ Audio generated: {len(audio_data)} bytes")
+        # Step 1: Generate image (DALL-E 2 for speed)
+        print(f"🖼️ Generating image for scene {scene.scene_number} with DALL-E 2...")
+        image_task = media_service.generate_image_dalle2(scene.visual_prompt, scene.scene_number)
         
-        # Step 2: Generate image as base64 data (no URL expiration issues)
-        print(f"🖼️ Generating image for scene {scene.scene_number}...")
-        image_data = await media_service.generate_image(scene.visual_prompt, scene.scene_number)
-        print(f"✅ Image generated as binary data: {len(image_data)} bytes")
+        # Step 2: Get audio from batch processing (audio is already generated)
+        print(f"🎵 Getting pre-generated audio for scene {scene.scene_number}...")
         
-        # Step 3: Upload image data directly to Firebase (no download needed)
-        print(f"☁️ Uploading image data to Firebase...")
-        image_url = await storage_service.upload_image_data(image_data, story_id, scene.scene_number)
-        print(f"✅ Image uploaded: {image_url}")
+        # Wait for image generation to complete
+        image_data = await image_task
+        print(f"✅ Image generated: {len(image_data)} bytes")
         
-        # Step 4: Upload audio to Firebase Storage
-        print(f"☁️ Uploading audio to Firebase...")
-        audio_url = await storage_service.upload_audio(audio_data, story_id, scene.scene_number)
-        print(f"✅ Audio uploaded: {audio_url}")
+        # Get the corresponding audio data from batch processing
+        audio_data = scene_texts[scene_index]['audio_data']
+        print(f"✅ Audio data retrieved: {len(audio_data)} bytes")
+        
+        # Step 3: Upload both files in parallel to Firebase
+        print(f"☁️ Uploading audio and image to Firebase in parallel...")
+        upload_tasks = [
+            storage_service.upload_audio(audio_data, story_id, scene.scene_number),
+            storage_service.upload_image_data(image_data, story_id, scene.scene_number)
+        ]
+        
+        audio_url, image_url = await asyncio.gather(*upload_tasks)
+        
+        print(f"✅ Parallel upload completed:")
+        print(f"  Audio: {audio_url}")
+        print(f"  Image: {image_url}")
         
         # Calculate timing
         audio_duration = calculate_audio_duration(scene.text)
@@ -81,19 +90,84 @@ async def process_scene_with_base64_images(scene, story_id, media_service, stora
             detail=f"Failed to process scene {scene.scene_number}: {str(scene_error)}"
         )
 
+async def process_scenes_parallel_optimized(scenes, story_id, media_service, storage_service):
+    """Process all scenes in parallel with batch audio AND batch image generation"""
+    print(f"\n🔥 Starting FULLY OPTIMIZED parallel processing for {len(scenes)} scenes...")
+    
+    # Step 1: Extract all scene texts for batch audio generation
+    scene_texts = [{"text": scene.text, "scene_number": scene.scene_number} for scene in scenes]
+    
+    # Step 2: Extract all visual prompts for batch image generation
+    visual_prompts = [{"visual_prompt": scene.visual_prompt, "scene_number": scene.scene_number} for scene in scenes]
+    
+    # Step 3: Generate ALL audio and ALL images in parallel (major optimization!)
+    print(f"🚀 Generating ALL audio and ALL images in parallel...")
+    
+    # Run both batch operations simultaneously
+    batch_tasks = [
+        media_service.generate_audio_batch(scene_texts),
+        media_service.generate_image_batch(visual_prompts)
+    ]
+    
+    audio_batch, image_batch = await asyncio.gather(*batch_tasks)
+    
+    print(f"✅ Parallel batch generation completed:")
+    print(f"  Audio files: {len(audio_batch)}")
+    print(f"  Image files: {len(image_batch)}")
+    
+    # Step 4: Upload all media files in parallel
+    print(f"☁️ Uploading all media files to Firebase in parallel...")
+    
+    # Create upload tasks for all media files
+    upload_tasks = []
+    for i, scene in enumerate(scenes):
+        # Upload audio and image for each scene in parallel
+        scene_upload_tasks = [
+            storage_service.upload_audio(audio_batch[i], story_id, scene.scene_number),
+            storage_service.upload_image_data(image_batch[i], story_id, scene.scene_number)
+        ]
+        upload_tasks.extend(scene_upload_tasks)
+    
+    # Execute all uploads in parallel
+    upload_results = await asyncio.gather(*upload_tasks)
+    
+    # Process results and update scenes
+    processed_scenes = []
+    for i, scene in enumerate(scenes):
+        # Get URLs from upload results
+        audio_url = upload_results[i * 2]      # Even indices are audio URLs
+        image_url = upload_results[i * 2 + 1]  # Odd indices are image URLs
+        
+        # Calculate timing
+        audio_duration = calculate_audio_duration(scene.text)
+        
+        # Update scene with URLs and timing
+        scene.audio_url = audio_url
+        scene.image_url = image_url
+        scene.start_time = 0  # Will be calculated later
+        
+        processed_scenes.append((scene, audio_duration))
+        
+        print(f"✅ Scene {scene.scene_number} processed with parallel uploads:")
+        print(f"  Audio: {audio_url}")
+        print(f"  Image: {image_url}")
+    
+    print(f"🎉 ALL {len(processed_scenes)} scenes processed with FULL parallelization!")
+    return processed_scenes
+
 @router.post("/generate")
-async def generate_story(
+async def generate_story_optimized(
     request: StoryPromptRequest,
     response: Response,
     story_service: StoryService = Depends(get_story_service),
     media_service: MediaService = Depends(get_media_service),
     storage_service: StorageService = Depends(get_storage_service)
 ):
-    """Main endpoint to generate a complete story with base64 image handling"""
+    """Optimized story generation with parallel processing, DALL-E 2, and batch audio"""
     add_cors_headers(response)
     
     try:
-        print(f"🎬 Starting story generation for prompt: {request.prompt}")
+        print(f"🎬 Starting OPTIMIZED story generation for prompt: {request.prompt}")
         
         # Verify Firebase token
         user_info = await verify_firebase_token(request.firebase_token)
@@ -109,18 +183,25 @@ async def generate_story(
         scenes, title = await story_service.generate_story_scenes(request.prompt, user_id)
         print(f"✅ Generated {len(scenes)} scenes for story: {title}")
         
-        # Process all scenes with base64 image handling
+        # Process all scenes with FULLY optimized parallel processing
+        processed_scenes_with_duration = await process_scenes_parallel_optimized(
+            scenes, story_id, media_service, storage_service
+        )
+        
+        # Extract scenes and calculate timings
         processed_scenes = []
         current_time = 0
         
-        for scene in scenes:
-            processed_scene, duration = await process_scene_with_base64_images(
-                scene, story_id, media_service, storage_service
-            )
+        for scene_result in processed_scenes_with_duration:
+            if isinstance(scene_result, tuple):
+                scene, duration = scene_result
+            else:
+                scene = scene_result
+                duration = calculate_audio_duration(scene.text)
             
             # Set start time
-            processed_scene.start_time = current_time
-            processed_scenes.append(processed_scene)
+            scene.start_time = current_time
+            processed_scenes.append(scene)
             current_time += duration
         
         # Build comprehensive manifest with scene-wise data
@@ -146,28 +227,42 @@ async def generate_story(
             "total_duration": current_time,
             "scenes": scenes_data,
             "generated_at": "now",
-            "status": "completed"
+            "status": "completed",
+            "generation_method": "fully_optimized_parallel_dalle2_openai_tts",
+            "optimizations": [
+                "parallel_scene_processing",
+                "dalle2_for_speed", 
+                "batch_openai_tts_generation",
+                "batch_dalle2_image_generation",
+                "parallel_firebase_uploads",
+                "full_parallelization"
+            ]
         }
         
         print(f"💾 Saving story metadata to Firebase...")
-        # Save to Firestore
+        # Save to Firestore (this can also be done in parallel, but it's fast)
         await storage_service.save_story_metadata(
             story_id, user_id, title, request.prompt, manifest
         )
-        print(f"✅ Story saved successfully!")
+        print(f"✅ Optimized story generation completed successfully!")
         
         # Return the complete manifest
         return {
             "success": True,
-            "message": f"Story '{title}' generated successfully!",
-            "story": manifest
+            "message": f"Story '{title}' generated successfully with optimizations!",
+            "story": manifest,
+            "performance_info": {
+                "optimizations_used": manifest["optimizations"],
+                "total_scenes": len(processed_scenes),
+                "generation_method": "parallel_processing"
+            }
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Story generation failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Story generation failed: {str(e)}")
+        print(f"❌ Optimized story generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Optimized story generation failed: {str(e)}")
 
 @router.post("/system-prompt")
 async def update_system_prompt(

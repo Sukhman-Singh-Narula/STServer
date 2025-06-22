@@ -17,28 +17,18 @@ if settings.openai_api_key and settings.openai_api_key != "test":
         # Test the API key
         client = OpenAI(api_key=settings.openai_api_key)
         print("✅ OpenAI client initialized successfully")
+        print("🎵 Using OpenAI TTS for audio generation")
+        print("🖼️ Using DALL-E 2 for faster image generation")
     except Exception as e:
         print(f"⚠️ OpenAI initialization failed: {str(e)}")
 else:
     print("⚠️ OpenAI API key not configured - story generation will not work")
 
-# Initialize ElevenLabs (PRIORITY for TTS)
-if settings.elevenlabs_api_key and settings.elevenlabs_api_key != "test":
-    try:
-        from elevenlabs import set_api_key
-        set_api_key(settings.elevenlabs_api_key)
-        print("✅ ElevenLabs initialized successfully (PRIORITY for TTS)")
-    except Exception as e:
-        print(f"⚠️ ElevenLabs initialization failed: {str(e)}")
-        print("🔄 Will fall back to OpenAI TTS (slower)")
-else:
-    print("⚠️ ElevenLabs API key not configured - will use OpenAI TTS (slower)")
-
 # Initialize FastAPI app
 app = FastAPI(
-    title="ESP32 Storytelling Server - ElevenLabs + OpenAI", 
-    version="2.1.0",
-    description="Modular FastAPI server for ESP32 storytelling device - ElevenLabs TTS + OpenAI GPT/DALL-E"
+    title="ESP32 Storytelling Server - Optimized OpenAI Edition", 
+    version="3.0.0",
+    description="Optimized FastAPI server for ESP32 storytelling device - OpenAI TTS + DALL-E 2 with parallel processing"
 )
 
 # Enhanced CORS middleware for React Native compatibility
@@ -147,21 +137,33 @@ async def startup_event():
     print(f"🌐 CORS Origins: {settings.cors_origins_list}")
     print("🤖 AI Services:")
     print(f"  - OpenAI: {'✅ Configured' if settings.openai_api_key and settings.openai_api_key != 'test' else '❌ Not configured'}")
-    print(f"  - ElevenLabs: {'✅ Configured (TTS Priority)' if settings.elevenlabs_api_key and settings.elevenlabs_api_key != 'test' else '❌ Not configured'}")
     print(f"  - Firebase: {'✅ Connected' if initialize_firebase() else '❌ Not connected'}")
-    print("📖 Story Generation: ElevenLabs TTS + OpenAI GPT-4 + DALL-E")
+    print("📖 Story Generation: OpenAI TTS + DALL-E 2 with Full Parallel Processing")
+    print("⚡ Optimizations:")
+    print(f"  - Parallel Scene Processing: {settings.max_concurrent_scenes} concurrent scenes")
+    print(f"  - DALL-E 2 for Speed: {'✅ Enabled' if settings.use_dalle_2_for_speed else '❌ Disabled'}")
+    print(f"  - Batch Audio Generation: {'✅ Enabled' if settings.enable_batch_audio else '❌ Disabled'}")
+    print(f"  - Batch Image Generation: {'✅ Enabled' if settings.enable_batch_images else '❌ Disabled'}")
+    print(f"  - Parallel Uploads: {'✅ Enabled' if settings.enable_parallel_uploads else '❌ Disabled'}")
 
 # Root endpoint
 @app.get("/")
 async def root():
     """Root endpoint with API information"""
     return {
-        "message": "ESP32 Storytelling Server API - ElevenLabs + OpenAI Edition",
-        "version": "2.1.0",
+        "message": "ESP32 Storytelling Server API - Optimized OpenAI Edition",
+        "version": "3.0.0",
         "docs": "/docs",
         "health": "/health",
         "status": "running",
-        "ai_stack": "ElevenLabs TTS + OpenAI GPT-4 + DALL-E",
+        "ai_stack": "OpenAI TTS + DALL-E 2 with Full Parallel Processing",
+        "optimizations": {
+            "parallel_processing": settings.max_concurrent_scenes,
+            "dalle_2_enabled": settings.use_dalle_2_for_speed,
+            "batch_audio": settings.enable_batch_audio,
+            "batch_images": settings.enable_batch_images,
+            "parallel_uploads": settings.enable_parallel_uploads
+        },
         "cors_origins": settings.cors_origins_list
     }
 
@@ -188,14 +190,10 @@ if __name__ == "__main__":
     # Check for required environment variables only if not in test mode
     if not settings.debug:
         required_vars = [
-            "OPENAI_API_KEY",  # Required for GPT-4 and DALL-E
+            "OPENAI_API_KEY",  # Required for GPT-4, DALL-E 2, and TTS
             "FIREBASE_CREDENTIALS_PATH", 
             "FIREBASE_STORAGE_BUCKET"
         ]
-        
-        # ElevenLabs is recommended but not required (will fall back to OpenAI TTS)
-        if not settings.elevenlabs_api_key or settings.elevenlabs_api_key == "test":
-            print("⚠️ ElevenLabs API key not set - will use slower OpenAI TTS")
         
         missing_vars = [var for var in required_vars if not os.getenv(var) or os.getenv(var) == "test"]
         
@@ -203,12 +201,19 @@ if __name__ == "__main__":
             print(f"❌ Missing required environment variables: {', '.join(missing_vars)}")
             print("Please set these environment variables before running the server.")
             print("💡 Tip: Set DEBUG=true for development/testing mode")
-            print("🤖 Note: ElevenLabs API key is recommended for faster TTS")
+            print("🤖 Note: Using OpenAI TTS + DALL-E 2 for optimal performance")
             exit(1)
     else:
         print("🧪 Running in debug mode - external services may not work")
     
-    print("🔧 Starting server...")
+    print("🔧 Starting optimized server...")
+    print("⚡ Performance features enabled:")
+    print(f"   - Parallel processing: {settings.max_concurrent_scenes} scenes")
+    print(f"   - DALL-E 2 for speed: {settings.use_dalle_2_for_speed}")
+    print(f"   - Batch audio: {settings.enable_batch_audio}")
+    print(f"   - Batch images: {settings.enable_batch_images}")
+    print(f"   - Parallel uploads: {settings.enable_parallel_uploads}")
+    
     uvicorn.run(
         "app.main:app",
         host=settings.host,
