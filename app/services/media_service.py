@@ -23,51 +23,47 @@ class MediaService:
             raise e
     
     async def generate_audio_batch_openai(self, scene_texts: List[Dict]) -> List[bytes]:
-        """Batch audio generation using OpenAI TTS (parallel processing with concurrency control)"""
+        """Batch audio generation using OpenAI TTS (full parallel processing)"""
         try:
             print(f"🎵 Using OpenAI TTS batch processing for {len(scene_texts)} scenes")
-            
-            # Create semaphore to limit concurrent requests (avoid rate limiting)
-            semaphore = asyncio.Semaphore(3)  # Max 3 concurrent audio requests
             
             async def generate_single_audio_openai(scene_data):
                 """Generate audio for a single scene using OpenAI TTS"""
                 text = scene_data['text']
                 scene_number = scene_data['scene_number']
                 
-                async with semaphore:  # Limit concurrency
-                    try:
-                        # Run OpenAI TTS generation in thread pool
-                        loop = asyncio.get_event_loop()
+                try:
+                    # Run OpenAI TTS generation in thread pool
+                    loop = asyncio.get_event_loop()
+                    
+                    def create_tts():
+                        response = self.openai_client.audio.speech.create(
+                            model="tts-1",  # Faster model
+                            voice="nova",   # Child-friendly voice
+                            input=text,
+                            response_format="mp3"
+                        )
                         
-                        def create_tts():
-                            response = self.openai_client.audio.speech.create(
-                                model="tts-1",  # Faster model
-                                voice="nova",   # Child-friendly voice
-                                input=text,
-                                response_format="mp3"
-                            )
-                            
-                            # Convert response to bytes
-                            audio_bytes = b""
-                            for chunk in response.iter_bytes():
-                                audio_bytes += chunk
-                            return audio_bytes
-                        
-                        audio_data = await loop.run_in_executor(None, create_tts)
-                        
-                        print(f"✅ OpenAI audio generated for scene {scene_number}: {len(audio_data)} bytes")
-                        return audio_data
-                        
-                    except Exception as e:
-                        print(f"❌ OpenAI TTS error for scene {scene_number}: {str(e)}")
-                        raise e
+                        # Convert response to bytes
+                        audio_bytes = b""
+                        for chunk in response.iter_bytes():
+                            audio_bytes += chunk
+                        return audio_bytes
+                    
+                    audio_data = await loop.run_in_executor(None, create_tts)
+                    
+                    print(f"✅ OpenAI audio generated for scene {scene_number}: {len(audio_data)} bytes")
+                    return audio_data
+                    
+                except Exception as e:
+                    print(f"❌ OpenAI TTS error for scene {scene_number}: {str(e)}")
+                    raise e
             
-            # Create tasks for parallel processing
+            # Create tasks for full parallel processing (no concurrency limits)
             tasks = [generate_single_audio_openai(scene_data) for scene_data in scene_texts]
             
-            # Execute all audio generation tasks in parallel with timeout
-            print(f"⏰ Starting controlled parallel audio generation (max 3 concurrent)...")
+            # Execute ALL audio generation tasks simultaneously
+            print(f"🚀 Starting FULL parallel audio generation (all {len(tasks)} at once)...")
             audio_results = await asyncio.wait_for(
                 asyncio.gather(*tasks, return_exceptions=True),
                 timeout=120.0  # 2 minutes total timeout for all audio
@@ -118,7 +114,7 @@ class MediaService:
                             response = self.openai_client.images.generate(
                                 model="dall-e-2",  # Much faster than DALL-E 3
                                 prompt=enhanced_prompt,
-                                size='1024x1024',  # Keep original size (1024x1024)
+                                size='1024x1024',  # Keep original size (1792x1024)
                                 n=1,
                                 response_format="b64_json"  # Get base64 data instead of URL
                             )
@@ -134,7 +130,7 @@ class MediaService:
                         print(f"✅ DALL-E 2 color image generated for scene {scene_number}: {len(image_data)} bytes")
                         
                         # Convert to grayscale
-                        grayscale_image_data = self.convert_image_to_grayscale(image_data)
+                        grayscale_image_data = self.convert_image_to_grayscale_and_resize(image_data)
                         
                         print(f"✅ Final grayscale image ready for scene {scene_number}: {len(grayscale_image_data)} bytes")
                         return grayscale_image_data
@@ -310,7 +306,7 @@ class MediaService:
             response = self.openai_client.images.generate(
                 model="dall-e-2",  # Much faster than DALL-E 3
                 prompt=enhanced_prompt,
-                size='1024x1024',  # Keep original size (1024x1024 or 960x540)
+                size='1024x1024',  # Keep original size (1792x1024 or 960x540)
                 n=1,
                 response_format="b64_json"  # Get base64 data instead of URL
             )
