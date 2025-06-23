@@ -328,7 +328,7 @@ class StorageService:
                     'total_scenes': manifest.get('total_scenes', 0),
                     'total_duration': manifest.get('total_duration', 0),
                     'generation_method': 'fully_optimized_parallel_dalle2_openai_tts',
-                    'image_format': 'grayscale_dalle2_original_size',
+                    'image_format': 'grayscale_960x540_from_dalle2',
                     'scenes_data': manifest.get('scenes', []),
                     'optimizations': manifest.get('optimizations', [])
                 }
@@ -436,6 +436,34 @@ class StorageService:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching story details: {str(e)}")
+    
+    async def update_story_status_and_title(self, story_id: str, status: str, title: str = None):
+        """Update story status and optionally title"""
+        try:
+            if not self.db:
+                print("⚠️ Firestore not available - skipping status update")
+                return
+            
+            # Run update in thread pool
+            loop = asyncio.get_event_loop()
+            
+            def update_status_sync():
+                doc_ref = self.db.collection('stories').document(story_id)
+                update_data = {
+                    'status': status,
+                    'updated_at': datetime.utcnow()
+                }
+                
+                if title:
+                    update_data['title'] = title
+                    
+                doc_ref.update(update_data)
+            
+            await loop.run_in_executor(None, update_status_sync)
+            print(f"✅ Story {story_id} status updated to: {status}")
+            
+        except Exception as e:
+            print(f"⚠️ Failed to update story status: {str(e)}")
     
     async def update_story_status(self, story_id: str, status: str):
         """Update story playback status"""

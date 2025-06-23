@@ -42,30 +42,17 @@ def print_warning(text):
 def print_info(text):
     print(f"{Colors.BLUE}ℹ️  {text}{Colors.END}")
 
+def print_json(data, title="JSON Response"):
+    """Pretty print JSON data"""
+    print(f"\n{Colors.CYAN}📋 {title}:{Colors.END}")
+    print(f"{Colors.WHITE}{json.dumps(data, indent=2, ensure_ascii=False)}{Colors.END}")
+
 def get_firebase_token():
     """Get Firebase token from environment or user input"""
     # Check environment variable first
-    env_token = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjNiZjA1MzkxMzk2OTEzYTc4ZWM4MGY0MjcwMzM4NjM2NDA2MTBhZGMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20vc3Rvcnl0ZWxsZXItN2VjZTciLCJhdWQiOiJzdG9yeXRlbGxlci03ZWNlNyIsImF1dGhfdGltZSI6MTc1MDYwODI2NSwidXNlcl9pZCI6InRlc3QtdXNlci0xMjM0NSIsInN1YiI6InRlc3QtdXNlci0xMjM0NSIsImlhdCI6MTc1MDYwODI2NSwiZXhwIjoxNzUwNjExODY1LCJmaXJlYmFzZSI6eyJpZGVudGl0aWVzIjp7fSwic2lnbl9pbl9wcm92aWRlciI6ImN1c3RvbSJ9fQ.OQHzM44NDxwzoLcFNA6bCWIhW1bYUOLzBsIZIcA_E1xnpeKPK2QA9Sph8ig-m5PSu0rTKElek8IA1fjAzA9YiXYE1cdnvZVm5_-ks786EhOQ7TTIZK94_v8uhuyM-SHTVAnsz3nkCScFpCPZ2sG6RJt247zz-XHgazEqjPAn96MC1LHaqi0oRASEAzPU7LalMrp7k8MraYnOtpM5MnWo-mX1GCd4dRIbAPMDax3P-rvApdNoSN4HKfzrLkqL0tF3Vb3K75iCaSKI4XHV0TvsyNntF6XwTgLOORfLXTkyif17yARaVIKAiBWz0JAi4GJhou7AvGeibtAFnNV9Pb2JAg"
+    env_token = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjNiZjA1MzkxMzk2OTEzYTc4ZWM4MGY0MjcwMzM4NjM2NDA2MTBhZGMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20vc3Rvcnl0ZWxsZXItN2VjZTciLCJhdWQiOiJzdG9yeXRlbGxlci03ZWNlNyIsImF1dGhfdGltZSI6MTc1MDY2MDgyNywidXNlcl9pZCI6InRlc3QtdXNlci0xMjM0NSIsInN1YiI6InRlc3QtdXNlci0xMjM0NSIsImlhdCI6MTc1MDY2MDgyNywiZXhwIjoxNzUwNjY0NDI3LCJmaXJlYmFzZSI6eyJpZGVudGl0aWVzIjp7fSwic2lnbl9pbl9wcm92aWRlciI6ImN1c3RvbSJ9fQ.QXspYb9c-bTe9lhECk9mwklE2JC8rGNJy_Cmad9mdOC_OWHYatOaeWgKycIgNxJrowWe84MpNGpN98Eh9qX_vrzut_iln_I0uM5R4EiI4rpjj8yqrCVf9nANVBPEEB2wB403OR7YFT2qxXFwV52XKLgyF9m7WXqL7RcNHlkoEv-pKc_nnD19ZyO44EGwpz9z-WGRq-aZl8vCvjxI-1BXCY3hCgWESAW8MaOucIYuDYzBsG3FJd4FNdsAZRER5AmAQV0ecqkspr9gsqjMqoV6c2o1FI-Hhn5lIjdKMHcSRFolULXW5h8fntOmsdjPAVtlzLtHrRuGhDupzMEyfZNG7A"
     
     return env_token
-    
-    # Check if we can use debug token
-    print_header("Firebase Token Setup")
-    print_info("Firebase token needed for authenticated endpoints")
-    print_info("Options:")
-    print_info("1. Use 'test_token' for debug mode (if DEBUG=true in server)")
-    print_info("2. Generate real token with get_test_token.py script")
-    print_info("3. Set environment variable: FIREBASE_TOKEN=your_token")
-    
-    try:
-        token = input(f"\n{Colors.YELLOW}Enter Firebase token (or 'test_token' for debug): {Colors.END}")
-        if token.strip():
-            return token.strip()
-        else:
-            return "test_token"  # Default to debug token
-    except KeyboardInterrupt:
-        print_info("\nUsing debug token: test_token")
-        return "test_token"
 
 def test_server_connection():
     """Test if server is running"""
@@ -205,21 +192,151 @@ def test_user_registration(firebase_token):
         print_error(f"Registration error: {str(e)}")
         return False
 
-def test_story_generation_quick(firebase_token):
-    """Test story generation with a simple prompt"""
-    print_header("Testing Story Generation (Quick Test)")
+def test_async_story_generation(firebase_token):
+    """Test new async story generation with polling"""
+    print_header("Testing Async Story Generation (ESP32 Style)")
     
-    print_info("This will test story generation with OpenAI...")
-    print_warning("This may take 2-5 minutes and will use OpenAI API credits")
+    print_info("This will test the new async story generation system...")
+    print_warning("This may take 1-2 minutes and will use OpenAI API credits")
     
     # Ask for confirmation
     try:
-        confirm = input(f"{Colors.YELLOW}Continue with story generation test? (y/n): {Colors.END}")
+        confirm = input(f"{Colors.YELLOW}Continue with async story generation test? (y/n): {Colors.END}")
         if confirm.lower() != 'y':
-            print_info("Skipping story generation test")
+            print_info("Skipping async story generation test")
             return True
     except KeyboardInterrupt:
-        print_info("\nSkipping story generation test")
+        print_info("\nSkipping async story generation test")
+        return True
+    
+    payload = {
+        "firebase_token": firebase_token,
+        "prompt": "Create a short test story about a robot and a cat becoming friends"
+    }
+    
+    print_info("Step 1: Starting story generation...")
+    start_time = time.time()
+    
+    try:
+        # Step 1: Start generation
+        response = requests.post(
+            f"{BASE_URL}/stories/generate", 
+            json=payload,
+            timeout=30  # Should be fast now
+        )
+        
+        if response.status_code != 200:
+            print_error(f"Story generation start failed: {response.text}")
+            return False
+        
+        generation_data = response.json()
+        print_json(generation_data, "Story Generation Started")
+        
+        if not generation_data.get('success'):
+            print_error("Story generation did not start successfully")
+            return False
+        
+        story_id = generation_data.get('story_id')
+        if not story_id:
+            print_error("No story_id returned")
+            return False
+        
+        print_success(f"Story generation started! Story ID: {story_id}")
+        
+        # Step 2: Poll for completion
+        print_info("Step 2: Polling for completion (ESP32 style)...")
+        
+        max_polls = 60  # 2 minutes max (60 polls * 2 seconds)
+        poll_count = 0
+        
+        while poll_count < max_polls:
+            poll_count += 1
+            print_info(f"Poll #{poll_count}: Checking story status...")
+            
+            try:
+                fetch_response = requests.get(
+                    f"{BASE_URL}/stories/fetch/{story_id}",
+                    timeout=10
+                )
+                
+                if fetch_response.status_code != 200:
+                    print_error(f"Fetch failed: {fetch_response.text}")
+                    return False
+                
+                fetch_data = fetch_response.json()
+                
+                # Print current status
+                status = fetch_data.get('status', 'unknown')
+                message = fetch_data.get('message', 'No message')
+                
+                if fetch_data.get('success'):
+                    # Story completed!
+                    end_time = time.time()
+                    duration = end_time - start_time
+                    
+                    print_success(f"Story completed in {duration:.1f} seconds after {poll_count} polls!")
+                    print_json(fetch_data, "Final Story Data")
+                    
+                    # Validate story data
+                    story = fetch_data.get('story', {})
+                    if story:
+                        print_success("Story validation:")
+                        print_info(f"  Title: {story.get('title', 'Unknown')}")
+                        print_info(f"  Story ID: {story.get('story_id', 'Unknown')}")
+                        print_info(f"  Total Scenes: {story.get('total_scenes', 0)}")
+                        print_info(f"  Total Duration: {story.get('total_duration', 0)/1000:.1f} seconds")
+                        
+                        scenes = story.get('scenes', [])
+                        if scenes:
+                            print_info(f"  First Scene: {scenes[0].get('text', 'No text')[:60]}...")
+                            print_info(f"  Audio URL: {'✓' if scenes[0].get('audio_url') else '✗'}")
+                            print_info(f"  Image URL: {'✓' if scenes[0].get('image_url') else '✗'}")
+                    
+                    return True
+                else:
+                    # Still processing
+                    print_warning(f"Status: {status} - {message}")
+                    
+                    if status == "failed":
+                        print_error("Story generation failed!")
+                        print_json(fetch_data, "Error Response")
+                        return False
+                    
+                    # Wait 2 seconds before next poll (ESP32 style)
+                    print_info("Waiting 2 seconds before next poll...")
+                    time.sleep(2)
+                
+            except Exception as poll_error:
+                print_error(f"Poll error: {str(poll_error)}")
+                time.sleep(2)
+                continue
+        
+        # Timeout
+        print_error(f"Story generation timed out after {max_polls} polls (2 minutes)")
+        return False
+        
+    except requests.exceptions.Timeout:
+        print_error("Story generation start timed out")
+        return False
+    except Exception as e:
+        print_error(f"Async story generation error: {str(e)}")
+        return False
+
+def test_story_generation_quick(firebase_token):
+    """Test story generation with a simple prompt (LEGACY - keeping for comparison)"""
+    print_header("Testing Legacy Story Generation (Full Wait)")
+    
+    print_info("This is the old synchronous method for comparison...")
+    print_warning("This endpoint may timeout on ESP32 devices")
+    
+    # Ask for confirmation
+    try:
+        confirm = input(f"{Colors.YELLOW}Continue with legacy story generation test? (y/n): {Colors.END}")
+        if confirm.lower() != 'y':
+            print_info("Skipping legacy story generation test")
+            return True
+    except KeyboardInterrupt:
+        print_info("\nSkipping legacy story generation test")
         return True
     
     payload = {
@@ -227,7 +344,7 @@ def test_story_generation_quick(firebase_token):
         "prompt": "Create a very short story about a friendly robot (test story)"
     }
     
-    print_info("Starting story generation...")
+    print_info("Starting legacy story generation...")
     start_time = time.time()
     
     try:
@@ -242,21 +359,29 @@ def test_story_generation_quick(firebase_token):
         
         if response.status_code == 200:
             data = response.json()
-            story = data['story']
+            
+            # Check if this is the new async response or old sync response
+            if 'story_id' in data and 'story' not in data:
+                print_warning("Server returned async response instead of sync response")
+                print_info("This means the async endpoint is working correctly!")
+                return True
+            
+            story = data.get('story', {})
             
             print_success(f"Story generated in {duration:.1f} seconds!")
-            print_info(f"Title: {story['title']}")
-            print_info(f"Story ID: {story['story_id']}")
-            print_info(f"Scenes: {story['total_scenes']}")
-            print_info(f"Duration: {story['total_duration']/1000:.1f} seconds")
+            print_info(f"Title: {story.get('title', 'Unknown')}")
+            print_info(f"Story ID: {story.get('story_id', 'Unknown')}")
+            print_info(f"Scenes: {story.get('total_scenes', 0)}")
+            print_info(f"Duration: {story.get('total_duration', 0)/1000:.1f} seconds")
             
             # Check first scene
-            if story['scenes']:
-                scene = story['scenes'][0]
+            scenes = story.get('scenes', [])
+            if scenes:
+                scene = scenes[0]
                 print_success("First scene generated successfully:")
-                print_info(f"  Text: {scene['text'][:80]}...")
-                print_info(f"  Audio URL: {'✓' if scene['audio_url'] else '✗'}")
-                print_info(f"  Image URL: {'✓' if scene['image_url'] else '✗'}")
+                print_info(f"  Text: {scene.get('text', 'No text')[:80]}...")
+                print_info(f"  Audio URL: {'✓' if scene.get('audio_url') else '✗'}")
+                print_info(f"  Image URL: {'✓' if scene.get('image_url') else '✗'}")
             
             return True
         else:
@@ -284,7 +409,7 @@ def test_get_stories(firebase_token):
             
             if stories:
                 for i, story in enumerate(stories[:3]):  # Show first 3
-                    print_info(f"  {i+1}. {story['title']} ({story['total_scenes']} scenes)")
+                    print_info(f"  {i+1}. {story['title']} ({story.get('total_scenes', '?')} scenes)")
             else:
                 print_info("No stories found (run story generation test first)")
             
@@ -312,7 +437,8 @@ def run_all_tests():
         ("Simple Endpoint", lambda: test_simple_endpoint()),
         ("User Registration", lambda: test_user_registration(firebase_token)),
         ("Get User Stories", lambda: test_get_stories(firebase_token)),
-        ("Story Generation", lambda: test_story_generation_quick(firebase_token)),
+        ("Async Story Generation (ESP32)", lambda: test_async_story_generation(firebase_token)),
+        ("Legacy Story Generation", lambda: test_story_generation_quick(firebase_token)),
     ]
     
     results = {}

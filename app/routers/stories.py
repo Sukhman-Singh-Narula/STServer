@@ -156,18 +156,18 @@ async def process_scenes_parallel_optimized(scenes, story_id, media_service, sto
     return processed_scenes
 
 @router.post("/generate")
-async def generate_story_optimized(
+async def generate_story_async(
     request: StoryPromptRequest,
     response: Response,
     story_service: StoryService = Depends(get_story_service),
     media_service: MediaService = Depends(get_media_service),
     storage_service: StorageService = Depends(get_storage_service)
 ):
-    """Optimized story generation with parallel processing, DALL-E 2, and batch audio"""
+    """Start story generation asynchronously and return story_id immediately"""
     add_cors_headers(response)
     
     try:
-        print(f"🎬 Starting OPTIMIZED story generation for prompt: {request.prompt}")
+        print(f"🎬 Starting ASYNC story generation for prompt: {request.prompt}")
         
         # Verify Firebase token
         user_info = await verify_firebase_token(request.firebase_token)
@@ -178,10 +178,76 @@ async def generate_story_optimized(
         story_id = story_service.generate_story_id()
         print(f"📖 Generated story ID: {story_id}")
         
+        # Create initial story record with "processing" status
+        initial_manifest = {
+            "story_id": story_id,
+            "title": "Generating...",
+            "user_prompt": request.prompt,
+            "total_scenes": 0,
+            "total_duration": 0,
+            "scenes": [],
+            "generated_at": "now",
+            "status": "processing",
+            "generation_method": "fully_optimized_parallel_dalle2_openai_tts",
+            "optimizations": [
+                "parallel_scene_processing",
+                "dalle2_for_speed", 
+                "batch_openai_tts_generation",
+                "batch_dalle2_image_generation",
+                "parallel_firebase_uploads",
+                "full_parallelization"
+            ]
+        }
+        
+        # Save initial story metadata with "processing" status
+        await storage_service.save_story_metadata(
+            story_id, user_id, "Generating...", request.prompt, initial_manifest
+        )
+        
+        # Start background task for story generation
+        asyncio.create_task(
+            generate_story_background(
+                story_id, request.prompt, user_id, 
+                story_service, media_service, storage_service
+            )
+        )
+        
+        print(f"✅ Story generation started in background: {story_id}")
+        
+        # Return immediately with story_id
+        return {
+            "success": True,
+            "message": f"Story generation started! Use story_id to check progress.",
+            "story_id": story_id,
+            "status": "processing",
+            "estimated_completion_time": "30-60 seconds"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Failed to start story generation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to start story generation: {str(e)}")
+
+async def generate_story_background(
+    story_id: str, 
+    prompt: str, 
+    user_id: str,
+    story_service: StoryService,
+    media_service: MediaService,
+    storage_service: StorageService
+):
+    """Background task to generate the complete story"""
+    try:
+        print(f"🔄 Background generation started for story: {story_id}")
+        
         # Generate story scenes using OpenAI (fetches user prompt from Firebase)
         print("🤖 Generating story scenes with OpenAI...")
-        scenes, title = await story_service.generate_story_scenes(request.prompt, user_id)
+        scenes, title = await story_service.generate_story_scenes(prompt, user_id)
         print(f"✅ Generated {len(scenes)} scenes for story: {title}")
+        
+        # Update story with title and "generating_media" status
+        await storage_service.update_story_status_and_title(story_id, "generating_media", title)
         
         # Process all scenes with FULLY optimized parallel processing
         processed_scenes_with_duration = await process_scenes_parallel_optimized(
@@ -222,7 +288,7 @@ async def generate_story_optimized(
         manifest = {
             "story_id": story_id,
             "title": title,
-            "user_prompt": request.prompt,
+            "user_prompt": prompt,
             "total_scenes": len(processed_scenes),
             "total_duration": current_time,
             "scenes": scenes_data,
@@ -239,30 +305,94 @@ async def generate_story_optimized(
             ]
         }
         
-        print(f"💾 Saving story metadata to Firebase...")
-        # Save to Firestore (this can also be done in parallel, but it's fast)
+        print(f"💾 Saving completed story metadata to Firebase...")
+        # Save final story metadata
         await storage_service.save_story_metadata(
-            story_id, user_id, title, request.prompt, manifest
+            story_id, user_id, title, prompt, manifest
         )
-        print(f"✅ Optimized story generation completed successfully!")
+        print(f"✅ Background story generation completed successfully: {story_id}")
         
-        # Return the complete manifest
-        return {
-            "success": True,
-            "message": f"Story '{title}' generated successfully with optimizations!",
-            "story": manifest,
-            "performance_info": {
-                "optimizations_used": manifest["optimizations"],
-                "total_scenes": len(processed_scenes),
-                "generation_method": "parallel_processing"
-            }
-        }
-        
-    except HTTPException:
-        raise
     except Exception as e:
-        print(f"❌ Optimized story generation failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Optimized story generation failed: {str(e)}")
+        print(f"❌ Background story generation failed for {story_id}: {str(e)}")
+        # Update story with error status
+        error_manifest = {
+            "story_id": story_id,
+            "title": "Generation Failed",
+            "user_prompt": prompt,
+            "status": "failed",
+            "error": str(e),
+            "generated_at": "now"
+        }
+        await storage_service.save_story_metadata(
+            story_id, user_id, "Generation Failed", prompt, error_manifest
+        )
+
+@router.get("/fetch/{story_id}")
+async def fetch_story_status(
+    story_id: str,
+    response: Response,
+    storage_service: StorageService = Depends(get_storage_service)
+):
+    """Fetch story status and data - for ESP32 polling"""
+    add_cors_headers(response)
+    
+    try:
+        print(f"📡 Fetching story status for: {story_id}")
+        
+        # Get story details from Firestore
+        story_details = await storage_service.get_story_details(story_id)
+        
+        if not story_details:
+            return {
+                "success": False,
+                "status": "not_found",
+                "message": "Story not found"
+            }
+        
+        story_status = story_details.get('status', 'unknown')
+        
+        if story_status == "completed":
+            # Return the complete story in the same format as the original generate endpoint
+            manifest = story_details.get('manifest', story_details)
+            
+            return {
+                "success": True,
+                "message": f"Story '{manifest.get('title', 'Unknown')}' generated successfully!",
+                "story": manifest,
+                "performance_info": {
+                    "optimizations_used": manifest.get("optimizations", []),
+                    "total_scenes": manifest.get("total_scenes", 0),
+                    "generation_method": "parallel_processing"
+                }
+            }
+            
+        elif story_status == "failed":
+            return {
+                "success": False,
+                "status": "failed",
+                "message": f"Story generation failed: {story_details.get('error', 'Unknown error')}",
+                "story_id": story_id
+            }
+            
+        else:
+            # Still processing
+            return {
+                "success": False,
+                "status": story_status,
+                "message": f"Story is still generating... Status: {story_status}",
+                "story_id": story_id,
+                "title": story_details.get('title', 'Generating...'),
+                "estimated_completion": "Check again in 5-10 seconds"
+            }
+        
+    except Exception as e:
+        print(f"❌ Error fetching story {story_id}: {str(e)}")
+        return {
+            "success": False,
+            "status": "error", 
+            "message": f"Error fetching story: {str(e)}",
+            "story_id": story_id
+        }
 
 @router.post("/system-prompt")
 async def update_system_prompt(
@@ -327,6 +457,7 @@ async def get_story_details(
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.options("/generate")
+@router.options("/fetch/{story_id}")
 @router.options("/system-prompt")
 @router.options("/list/{user_token}")
 @router.options("/details/{story_id}")
