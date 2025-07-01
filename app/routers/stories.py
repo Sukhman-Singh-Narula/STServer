@@ -1,6 +1,8 @@
-# ===== app/routers/stories.py - OPTIMIZED WITH PARALLEL PROCESSING =====
+# ===== ENHANCED STORIES ROUTER WITH STORY ID ARRAY SUPPORT =====
+# Replace your app/routers/stories.py with this enhanced version
+
 import asyncio
-from fastapi import APIRouter, HTTPException, Depends, Response
+from fastapi import APIRouter, HTTPException, Depends, Response, Query
 from app.models.story import StoryPromptRequest, SystemPromptUpdate
 from app.services.story_service import StoryService
 from app.services.media_service import MediaService
@@ -39,56 +41,7 @@ def add_cors_headers(response: Response):
     response.headers["Access-Control-Allow-Headers"] = "*"
     response.headers["Access-Control-Allow-Credentials"] = "true"
 
-async def process_scene_optimized(scene, story_id, media_service, storage_service, scene_texts, scene_index):
-    """Process a single scene with optimized parallel operations"""
-    print(f"\n🎨 Processing scene {scene.scene_number}: {scene.text[:50]}...")
-    
-    try:
-        # Step 1: Generate image (DALL-E 2 for speed)
-        print(f"🖼️ Generating image for scene {scene.scene_number} with DALL-E 2...")
-        image_task = media_service.generate_image_dalle2(scene.visual_prompt, scene.scene_number)
-        
-        # Step 2: Get audio from batch processing (audio is already generated)
-        print(f"🎵 Getting pre-generated audio for scene {scene.scene_number}...")
-        
-        # Wait for image generation to complete
-        image_data = await image_task
-        print(f"✅ Image generated: {len(image_data)} bytes")
-        
-        # Get the corresponding audio data from batch processing
-        audio_data = scene_texts[scene_index]['audio_data']
-        print(f"✅ Audio data retrieved: {len(audio_data)} bytes")
-        
-        # Step 3: Upload both files in parallel to Firebase
-        print(f"☁️ Uploading audio and image to Firebase in parallel...")
-        upload_tasks = [
-            storage_service.upload_audio(audio_data, story_id, scene.scene_number),
-            storage_service.upload_image_data(image_data, story_id, scene.scene_number)
-        ]
-        
-        audio_url, image_url = await asyncio.gather(*upload_tasks)
-        
-        print(f"✅ Parallel upload completed:")
-        print(f"  Audio: {audio_url}")
-        print(f"  Image: {image_url}")
-        
-        # Calculate timing
-        audio_duration = calculate_audio_duration(scene.text)
-        
-        # Update scene with URLs and timing
-        scene.audio_url = audio_url
-        scene.image_url = image_url
-        scene.start_time = 0  # Will be calculated later
-        
-        print(f"✅ Scene {scene.scene_number} processed successfully")
-        return scene, audio_duration
-        
-    except Exception as scene_error:
-        print(f"❌ Error processing scene {scene.scene_number}: {str(scene_error)}")
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to process scene {scene.scene_number}: {str(scene_error)}"
-        )
+# ===== STORY GENERATION (Keep existing methods) =====
 
 async def process_scenes_parallel_optimized(scenes, story_id, media_service, storage_service):
     """Process all scenes in parallel with batch audio AND batch image generation"""
@@ -188,18 +141,19 @@ async def generate_story_async(
             "scenes": [],
             "generated_at": "now",
             "status": "processing",
-            "generation_method": "fully_optimized_parallel_dalle2_openai_tts",
+            "generation_method": "fully_optimized_parallel_dalle2_openai_tts_with_id_arrays",
             "optimizations": [
                 "parallel_scene_processing",
                 "dalle2_for_speed", 
                 "batch_openai_tts_generation",
                 "batch_dalle2_image_generation",
                 "parallel_firebase_uploads",
+                "story_id_array_tracking",
                 "full_parallelization"
             ]
         }
         
-        # Save initial story metadata with "processing" status
+        # Save initial story metadata with "processing" status and add to user's story_ids array
         await storage_service.save_story_metadata(
             story_id, user_id, "Generating...", request.prompt, initial_manifest
         )
@@ -213,14 +167,16 @@ async def generate_story_async(
         )
         
         print(f"✅ Story generation started in background: {story_id}")
+        print(f"📋 Story ID added to user {user_id}'s story_ids array")
         
         # Return immediately with story_id
         return {
             "success": True,
-            "message": f"Story generation started! Use story_id to check progress.",
+            "message": f"Story generation started! Story ID added to your collection.",
             "story_id": story_id,
             "status": "processing",
-            "estimated_completion_time": "30-60 seconds"
+            "estimated_completion_time": "30-60 seconds",
+            "tracking_method": "story_id_array"
         }
         
     except HTTPException:
@@ -237,7 +193,7 @@ async def generate_story_background(
     media_service: MediaService,
     storage_service: StorageService
 ):
-    """Background task to generate the complete story"""
+    """Background task to generate the complete story with story ID array tracking"""
     try:
         print(f"🔄 Background generation started for story: {story_id}")
         
@@ -294,23 +250,25 @@ async def generate_story_background(
             "scenes": scenes_data,
             "generated_at": "now",
             "status": "completed",
-            "generation_method": "fully_optimized_parallel_dalle2_openai_tts",
+            "generation_method": "fully_optimized_parallel_dalle2_openai_tts_with_id_arrays",
             "optimizations": [
                 "parallel_scene_processing",
                 "dalle2_for_speed", 
                 "batch_openai_tts_generation",
                 "batch_dalle2_image_generation",
                 "parallel_firebase_uploads",
+                "story_id_array_tracking",
                 "full_parallelization"
             ]
         }
         
-        print(f"💾 Saving completed story metadata to Firebase...")
-        # Save final story metadata
+        print(f"💾 Saving completed story metadata to Firebase with ID array update...")
+        # Save final story metadata (this will update the story in user's story_ids array)
         await storage_service.save_story_metadata(
             story_id, user_id, title, prompt, manifest
         )
         print(f"✅ Background story generation completed successfully: {story_id}")
+        print(f"📋 Story {story_id} is now tracked in user {user_id}'s story_ids array")
         
     except Exception as e:
         print(f"❌ Background story generation failed for {story_id}: {str(e)}")
@@ -362,7 +320,8 @@ async def fetch_story_status(
                 "performance_info": {
                     "optimizations_used": manifest.get("optimizations", []),
                     "total_scenes": manifest.get("total_scenes", 0),
-                    "generation_method": "parallel_processing"
+                    "generation_method": "parallel_processing_with_id_arrays",
+                    "tracking_method": "story_id_array"
                 }
             }
             
@@ -394,6 +353,192 @@ async def fetch_story_status(
             "story_id": story_id
         }
 
+# ===== ENHANCED USER STORY MANAGEMENT ENDPOINTS WITH STORY ID ARRAYS =====
+
+@router.get("/user/{firebase_token}")
+async def get_user_stories_endpoint(
+    firebase_token: str,
+    response: Response,
+    limit: int = Query(20, ge=1, le=100, description="Number of stories to return (1-100)"),
+    offset: int = Query(0, ge=0, description="Number of stories to skip"),
+    storage_service: StorageService = Depends(get_storage_service)
+):
+    """Get all stories for a user using story ID arrays with full metadata
+    
+    This endpoint now uses the story_ids array from the user document for optimal performance.
+    
+    Usage examples:
+    - GET /stories/user/{token} - Get first 20 stories using ID array
+    - GET /stories/user/{token}?limit=10 - Get first 10 stories  
+    - GET /stories/user/{token}?limit=10&offset=10 - Get stories 11-20
+    """
+    add_cors_headers(response)
+    
+    try:
+        # Verify Firebase token and get user ID
+        user_info = await verify_firebase_token(firebase_token)
+        user_id = user_info['uid']
+        
+        print(f"📚 Fetching stories for user {user_id} using story ID array method")
+        print(f"   Pagination: limit={limit}, offset={offset}")
+        
+        # Get user stories using the enhanced story ID array method
+        result = await storage_service.get_user_stories_using_id_array(user_id, limit=limit, offset=offset)
+        
+        # Enhance response with summary statistics
+        response_data = {
+            "success": True,
+            "user_id": user_id,
+            "stories": result["stories"],
+            "pagination": result.get("pagination", {}),
+            "user_info": result["user_info"],
+            "summary": {
+                "total_stories_created": result["total_count"],
+                "newest_story": result["stories"][0] if result["stories"] else None,
+                "stories_this_page": len(result["stories"]),
+                "method_used": result.get("method_used", "story_id_array"),
+                "performance_info": result.get("performance_info", {})
+            },
+            "tracking_info": {
+                "uses_story_id_array": True,
+                "story_ids_array_length": result.get("user_info", {}).get("story_ids_array_length", 0),
+                "batch_fetched": True,
+                "optimized_for_user_queries": True
+            }
+        }
+        
+        print(f"✅ Found {result['total_count']} total stories for user {user_id}")
+        print(f"📋 Method used: {result.get('method_used', 'story_id_array')}")
+        print(f"📊 Performance: {result.get('performance_info', {})}")
+        
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error fetching user stories: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch stories: {str(e)}")
+
+@router.get("/user/{firebase_token}/summary")
+async def get_user_stories_summary(
+    firebase_token: str,
+    response: Response,
+    storage_service: StorageService = Depends(get_storage_service)
+):
+    """Get a quick summary of user's story creation activity using story ID arrays"""
+    add_cors_headers(response)
+    
+    try:
+        # Verify Firebase token and get user ID
+        user_info = await verify_firebase_token(firebase_token)
+        user_id = user_info['uid']
+        
+        # Get basic story count and latest stories using ID array method
+        result = await storage_service.get_user_stories_using_id_array(user_id, limit=5, offset=0)
+        
+        summary = {
+            "success": True,
+            "user_id": user_id,
+            "total_stories": result["total_count"],
+            "latest_stories": result["stories"][:3],  # Just the 3 most recent
+            "user_info": result["user_info"],
+            "activity": {
+                "has_stories": result["total_count"] > 0,
+                "recent_activity": result["stories"][:5] if result["stories"] else []
+            },
+            "tracking_method": {
+                "uses_story_id_array": True,
+                "method": result.get("method_used", "story_id_array"),
+                "story_ids_count": result.get("user_info", {}).get("story_ids_array_length", 0)
+            }
+        }
+        
+        return summary
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch summary: {str(e)}")
+
+@router.get("/user/{firebase_token}/story-ids")
+async def get_user_story_ids(
+    firebase_token: str,
+    response: Response,
+    storage_service: StorageService = Depends(get_storage_service)
+):
+    """Get just the story IDs array for a user (useful for quick checks)"""
+    add_cors_headers(response)
+    
+    try:
+        # Verify Firebase token and get user ID
+        user_info = await verify_firebase_token(firebase_token)
+        user_id = user_info['uid']
+        
+        print(f"📋 Fetching story IDs array for user {user_id}")
+        
+        # Get story IDs array
+        story_ids = await storage_service.get_user_story_ids(user_id)
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "story_ids": story_ids,
+            "total_count": len(story_ids),
+            "newest_first": list(reversed(story_ids)),  # Newest first
+            "oldest_first": story_ids,  # As stored (oldest first)
+            "summary": {
+                "has_stories": len(story_ids) > 0,
+                "latest_story_id": story_ids[-1] if story_ids else None,
+                "oldest_story_id": story_ids[0] if story_ids else None
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch story IDs: {str(e)}")
+
+@router.delete("/user/{firebase_token}/story/{story_id}")
+async def delete_user_story(
+    firebase_token: str,
+    story_id: str,
+    response: Response,
+    storage_service: StorageService = Depends(get_storage_service)
+):
+    """Delete a specific story for a user and remove from story_ids array"""
+    add_cors_headers(response)
+    
+    try:
+        # Verify Firebase token and get user ID
+        user_info = await verify_firebase_token(firebase_token)
+        user_id = user_info['uid']
+        
+        print(f"🗑️ Deleting story {story_id} for user {user_id}")
+        print(f"📋 Will also remove from user's story_ids array")
+        
+        # Delete the story (this also updates the story_ids array)
+        success = await storage_service.delete_user_story(story_id, user_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Story {story_id} deleted successfully and removed from your story collection",
+                "story_id": story_id,
+                "tracking_info": {
+                    "removed_from_story_ids_array": True,
+                    "story_count_decremented": True
+                }
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Story not found or access denied")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete story: {str(e)}")
+
+# ===== LEGACY ENDPOINTS (KEEP FOR COMPATIBILITY) =====
+
 @router.post("/system-prompt")
 async def update_system_prompt(
     request: SystemPromptUpdate,
@@ -419,20 +564,25 @@ async def update_system_prompt(
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/list/{user_token}")
-async def get_user_stories(
+async def get_user_stories_legacy(
     user_token: str,
     response: Response,
     storage_service: StorageService = Depends(get_storage_service)
 ):
-    """Get all stories for a user (summary list)"""
+    """Get all stories for a user (legacy endpoint - redirects to new ID array method)"""
     add_cors_headers(response)
     
     try:
         user_info = await verify_firebase_token(user_token)
         user_id = user_info['uid']
         
-        story_list = await storage_service.get_user_stories(user_id)
-        return {"stories": story_list}
+        result = await storage_service.get_user_stories_using_id_array(user_id, limit=50, offset=0)
+        return {
+            "stories": result["stories"],
+            "total_count": result["total_count"],
+            "user_info": result["user_info"],
+            "legacy_endpoint_notice": "This endpoint now uses the optimized story ID array method"
+        }
         
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -456,12 +606,18 @@ async def get_story_details(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# ===== OPTIONS HANDLERS =====
+
 @router.options("/generate")
 @router.options("/fetch/{story_id}")
 @router.options("/system-prompt")
 @router.options("/list/{user_token}")
 @router.options("/details/{story_id}")
+@router.options("/user/{firebase_token}")
+@router.options("/user/{firebase_token}/summary") 
+@router.options("/user/{firebase_token}/story/{story_id}")
+@router.options("/user/{firebase_token}/story-ids")
 async def stories_options(response: Response):
-    """Handle preflight OPTIONS requests for stories endpoints"""
+    """Handle preflight OPTIONS requests for all story endpoints"""
     add_cors_headers(response)
     return {"message": "OK"}

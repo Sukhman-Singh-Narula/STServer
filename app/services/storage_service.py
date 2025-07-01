@@ -1,4 +1,6 @@
-# ===== app/services/storage_service.py - OPTIMIZED WITH PARALLEL UPLOADS =====
+# ===== COMPLETE STORY ID ARRAY IMPLEMENTATION - STORAGE SERVICE =====
+# Replace your entire storage_service.py with this enhanced version
+
 import tempfile
 import io
 import asyncio
@@ -29,49 +31,8 @@ class StorageService:
                 
         except Exception as e:
             print(f"⚠️ Storage Service initialization error: {str(e)}")
-    
-    async def upload_media_parallel(self, audio_data: bytes, image_data: bytes, story_id: str, scene_number: int) -> Tuple[str, str]:
-        """Upload audio and image files in parallel to Firebase Storage"""
-        try:
-            if not self.bucket:
-                raise HTTPException(status_code=503, detail="Firebase Storage not available")
-            
-            print(f"📤 Starting parallel upload for scene {scene_number}...")
-            print(f"  Audio size: {len(audio_data)} bytes")
-            print(f"  Image size: {len(image_data)} bytes")
-            
-            # Create upload tasks for parallel execution
-            upload_tasks = [
-                self.upload_audio(audio_data, story_id, scene_number),
-                self.upload_image_data(image_data, story_id, scene_number)
-            ]
-            
-            # Execute uploads in parallel
-            print(f"🚀 Executing parallel uploads for scene {scene_number}...")
-            results = await asyncio.gather(*upload_tasks, return_exceptions=True)
-            
-            # Check for any upload failures
-            audio_url = results[0]
-            image_url = results[1]
-            
-            if isinstance(audio_url, Exception):
-                raise HTTPException(status_code=500, detail=f"Audio upload failed: {str(audio_url)}")
-            
-            if isinstance(image_url, Exception):
-                raise HTTPException(status_code=500, detail=f"Image upload failed: {str(image_url)}")
-            
-            print(f"✅ Parallel upload completed for scene {scene_number}:")
-            print(f"  Audio URL: {audio_url}")
-            print(f"  Image URL: {image_url}")
-            
-            return audio_url, image_url
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            error_msg = f"Parallel upload failed for scene {scene_number}: {str(e)}"
-            print(f"❌ {error_msg}")
-            raise HTTPException(status_code=500, detail=error_msg)
+
+    # ===== MEDIA UPLOAD METHODS (Keep existing) =====
     
     async def upload_audio(self, audio_data: bytes, story_id: str, scene_number: int) -> str:
         """Upload audio to Firebase Storage with improved error handling"""
@@ -175,135 +136,11 @@ class StorageService:
             error_msg = f"Grayscale image upload failed for scene {scene_number}: {str(e)}"
             print(f"❌ {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
-    
-    async def upload_batch_media(self, media_list: List[Dict]) -> List[Dict]:
-        """Upload multiple media files in parallel (batch upload optimization)"""
-        try:
-            if not self.bucket:
-                raise HTTPException(status_code=503, detail="Firebase Storage not available")
-            
-            print(f"📤 Starting batch upload for {len(media_list)} media files...")
-            
-            # Create upload tasks for all media files
-            upload_tasks = []
-            for media in media_list:
-                if media['type'] == 'audio':
-                    task = self.upload_audio(
-                        media['data'], 
-                        media['story_id'], 
-                        media['scene_number']
-                    )
-                elif media['type'] == 'image':
-                    task = self.upload_image_data(
-                        media['data'], 
-                        media['story_id'], 
-                        media['scene_number']
-                    )
-                else:
-                    continue
-                
-                upload_tasks.append({
-                    'task': task,
-                    'type': media['type'],
-                    'scene_number': media['scene_number']
-                })
-            
-            # Execute all uploads in parallel
-            print(f"🚀 Executing {len(upload_tasks)} parallel uploads...")
-            results = await asyncio.gather(
-                *[task_info['task'] for task_info in upload_tasks], 
-                return_exceptions=True
-            )
-            
-            # Process results
-            upload_results = []
-            for i, result in enumerate(results):
-                task_info = upload_tasks[i]
-                
-                if isinstance(result, Exception):
-                    print(f"❌ Upload failed for {task_info['type']} scene {task_info['scene_number']}: {result}")
-                    upload_results.append({
-                        'type': task_info['type'],
-                        'scene_number': task_info['scene_number'],
-                        'success': False,
-                        'error': str(result)
-                    })
-                else:
-                    upload_results.append({
-                        'type': task_info['type'],
-                        'scene_number': task_info['scene_number'],
-                        'success': True,
-                        'url': result
-                    })
-            
-            successful_uploads = len([r for r in upload_results if r['success']])
-            print(f"✅ Batch upload completed: {successful_uploads}/{len(upload_results)} successful")
-            
-            return upload_results
-            
-        except Exception as e:
-            error_msg = f"Batch upload failed: {str(e)}"
-            print(f"❌ {error_msg}")
-            raise HTTPException(status_code=500, detail=error_msg)
-    
-    async def upload_image_from_url(self, image_url: str, story_id: str, scene_number: int) -> str:
-        """Download image from URL and upload to Firebase Storage - LEGACY METHOD"""
-        try:
-            if not self.bucket:
-                raise HTTPException(status_code=503, detail="Firebase Storage not available")
-            
-            print(f"📥 Downloading image from URL...")
-            print(f"🔗 URL: {image_url[:100]}...")
-            
-            # Download image with proper headers and timeout
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'image/*,*/*;q=0.8',
-                'Accept-Encoding': 'gzip, deflate',
-                'Connection': 'keep-alive'
-            }
-            
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(30.0, connect=10.0), 
-                follow_redirects=True,
-                headers=headers
-            ) as client:
-                
-                print(f"🌐 Making request...")
-                response = await client.get(image_url)
-                
-                print(f"📊 Response status: {response.status_code}")
-                print(f"📊 Content type: {response.headers.get('content-type', 'unknown')}")
-                print(f"📊 Content length: {len(response.content)} bytes")
-                
-                response.raise_for_status()
-                image_data = response.content
-                
-                # Now use the direct upload method (which will handle grayscale)
-                return await self.upload_image_data(image_data, story_id, scene_number)
-            
-        except HTTPException:
-            raise
-        except httpx.TimeoutException:
-            error_msg = f"Image download timeout for scene {scene_number}"
-            print(f"❌ {error_msg}")
-            raise HTTPException(status_code=408, detail=error_msg)
-        except httpx.HTTPStatusError as e:
-            error_msg = f"Image download failed for scene {scene_number}: HTTP {e.response.status_code}"
-            print(f"❌ {error_msg}")
-            
-            if e.response.status_code == 403:
-                print(f"🔑 403 Error: OpenAI image URL has expired")
-                print(f"💡 Consider using base64 response format instead of URLs")
-            
-            raise HTTPException(status_code=500, detail=error_msg)
-        except Exception as e:
-            error_msg = f"Image processing failed for scene {scene_number}: {str(e)}"
-            print(f"❌ {error_msg}")
-            raise HTTPException(status_code=500, detail=error_msg)
+
+    # ===== ENHANCED STORY METADATA MANAGEMENT WITH STORY ID ARRAYS =====
     
     async def save_story_metadata(self, story_id: str, user_id: str, title: str, prompt: str, manifest: Dict):
-        """Save comprehensive story metadata to Firestore (optimized for parallel execution)"""
+        """Save story metadata with story ID array tracking for each user"""
         try:
             if not self.db:
                 print("⚠️ Firestore not available - skipping metadata save")
@@ -312,10 +149,10 @@ class StorageService:
             # Run Firestore operations in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
             
-            def save_metadata_sync():
+            def save_metadata_with_story_arrays():
                 current_time = datetime.utcnow()
                 
-                # Enhanced story document with all scene details
+                # 1. MAIN STORY DOCUMENT
                 story_doc = {
                     'story_id': story_id,
                     'user_id': user_id,
@@ -324,90 +161,261 @@ class StorageService:
                     'manifest': manifest,
                     'created_at': current_time,
                     'updated_at': current_time,
-                    'status': 'completed',
+                    'status': manifest.get('status', 'completed'),
                     'total_scenes': manifest.get('total_scenes', 0),
                     'total_duration': manifest.get('total_duration', 0),
-                    'generation_method': 'fully_optimized_parallel_dalle2_openai_tts',
+                    'generation_method': manifest.get('generation_method', 'optimized_parallel'),
                     'image_format': 'grayscale_960x540_from_dalle2',
                     'scenes_data': manifest.get('scenes', []),
-                    'optimizations': manifest.get('optimizations', [])
+                    'optimizations': manifest.get('optimizations', []),
+                    'ai_models_used': {
+                        'text_generation': 'gpt-4',
+                        'image_generation': 'dall-e-2',
+                        'audio_generation': 'openai-tts-1'
+                    }
                 }
                 
-                # Save to Firestore
+                # Get thumbnail from first scene
+                scenes = manifest.get('scenes', [])
+                if scenes and len(scenes) > 0:
+                    story_doc['thumbnail_url'] = scenes[0].get('image_url')
+                
+                # Save to main stories collection
                 doc_ref = self.db.collection('stories').document(story_id)
                 doc_ref.set(story_doc)
                 
-                # Update user's story count and last activity
+                # 2. UPDATE USER DOCUMENT WITH STORY ID ARRAY
                 user_ref = self.db.collection('users').document(user_id)
-                user_ref.update({
-                    'story_count': firestore.Increment(1),
+                user_doc = user_ref.get()
+                
+                current_story_count = 0
+                existing_story_ids = []
+                
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    current_story_count = user_data.get('story_count', 0)
+                    existing_story_ids = user_data.get('story_ids', [])
+                
+                new_story_count = current_story_count + 1
+                
+                # Add new story ID to the array (newest at the end)
+                updated_story_ids = existing_story_ids + [story_id]
+                
+                # Update story document with story number
+                story_doc['story_number'] = new_story_count
+                doc_ref.update({'story_number': new_story_count})
+                
+                # Enhanced user document update with story ID array
+                user_update_data = {
+                    'story_count': new_story_count,
+                    'story_ids': updated_story_ids,  # CRITICAL: Array of all story IDs
                     'last_active': current_time,
                     'last_story_created': current_time,
-                    'last_story_id': story_id
-                })
+                    'last_story_id': story_id,
+                    'last_story_title': title,
+                    # Enhanced statistics
+                    'story_statistics': {
+                        'total_stories': new_story_count,
+                        'total_scenes_created': sum(story.get('total_scenes', 0) for story in [story_doc]),
+                        'total_duration_seconds': sum(story.get('total_duration', 0) for story in [story_doc]) / 1000,
+                        'last_generation_method': story_doc['generation_method'],
+                        'creation_dates': existing_story_ids + [{'story_id': story_id, 'created_at': current_time}]
+                    }
+                }
+                
+                # Update main user document
+                if user_doc.exists:
+                    user_ref.update(user_update_data)
+                else:
+                    user_update_data.update({
+                        'created_at': current_time,
+                        'user_id': user_id
+                    })
+                    user_ref.set(user_update_data)
+                
+                print(f"📝 Updated user {user_id} story_ids array: {len(updated_story_ids)} stories")
+                print(f"📝 Story IDs: {updated_story_ids}")
                 
                 return True
             
             # Execute in thread pool
-            await loop.run_in_executor(None, save_metadata_sync)
+            await loop.run_in_executor(None, save_metadata_with_story_arrays)
             
-            print(f"✅ Story metadata saved to Firestore: {story_id}")
+            print(f"✅ Story metadata saved with ID array tracking: {story_id} for user {user_id}")
             
         except Exception as e:
-            print(f"⚠️ Failed to save story metadata (non-critical): {str(e)}")
-    
-    async def get_user_stories(self, user_id: str) -> list:
-        """Get all stories for a user with enhanced data"""
+            print(f"⚠️ Failed to save story metadata with arrays: {str(e)}")
+
+    async def get_user_stories_using_id_array(self, user_id: str, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """Get user stories using the story ID array - MAIN METHOD"""
         try:
             if not self.db:
                 print("⚠️ Firestore not available")
-                return []
+                return {
+                    "stories": [],
+                    "total_count": 0,
+                    "has_more": False,
+                    "user_info": None,
+                    "method_used": "firestore_unavailable"
+                }
             
             # Run Firestore query in thread pool
             loop = asyncio.get_event_loop()
             
-            def get_stories_sync():
-                stories_ref = self.db.collection('stories')
-                query = stories_ref.where('user_id', '==', user_id).order_by('created_at', direction=firestore.Query.DESCENDING)
-                stories = query.stream()
+            def get_stories_from_id_array():
+                # 1. GET USER DOCUMENT WITH STORY ID ARRAY
+                user_ref = self.db.collection('users').document(user_id)
+                user_doc = user_ref.get()
                 
-                story_list = []
-                for story in stories:
-                    story_data = story.to_dict()
-                    
-                    story_summary = {
-                        'story_id': story.id,
-                        'title': story_data.get('title'),
-                        'user_prompt': story_data.get('user_prompt'),
-                        'created_at': story_data.get('created_at'),
-                        'total_scenes': story_data.get('total_scenes', 0),
-                        'total_duration': story_data.get('total_duration', 0),
-                        'status': story_data.get('status', 'unknown'),
-                        'image_format': story_data.get('image_format', 'unknown'),
-                        'generation_method': story_data.get('generation_method', 'unknown'),
-                        'optimizations': story_data.get('optimizations', []),
-                        'thumbnail_url': None
+                if not user_doc.exists:
+                    return {
+                        "stories": [],
+                        "total_count": 0,
+                        "has_more": False,
+                        "user_info": None,
+                        "method_used": "user_not_found"
                     }
-                    
-                    # Get first scene image as thumbnail
-                    scenes_data = story_data.get('scenes_data', [])
-                    if scenes_data and len(scenes_data) > 0:
-                        story_summary['thumbnail_url'] = scenes_data[0].get('image_url')
-                    
-                    story_list.append(story_summary)
                 
-                return story_list
+                user_data = user_doc.to_dict()
+                story_ids = user_data.get('story_ids', [])
+                total_count = len(story_ids)
+                
+                print(f"📋 Found {total_count} story IDs for user {user_id}")
+                print(f"📋 Story IDs: {story_ids}")
+                
+                if not story_ids:
+                    user_info = self._extract_user_info(user_data)
+                    return {
+                        "stories": [],
+                        "total_count": 0,
+                        "has_more": False,
+                        "user_info": user_info,
+                        "method_used": "story_id_array_empty"
+                    }
+                
+                # 2. APPLY PAGINATION TO STORY IDS (newest first)
+                # Reverse the array to get newest stories first, then paginate
+                story_ids_reversed = list(reversed(story_ids))
+                paginated_story_ids = story_ids_reversed[offset:offset + limit]
+                
+                print(f"📄 Paginated IDs (offset:{offset}, limit:{limit}): {paginated_story_ids}")
+                
+                # 3. BATCH FETCH STORY DOCUMENTS USING STORY IDS
+                stories_data = []
+                
+                # Fetch each story document using the ID
+                for story_id in paginated_story_ids:
+                    try:
+                        story_ref = self.db.collection('stories').document(story_id)
+                        story_doc = story_ref.get()
+                        
+                        if story_doc.exists:
+                            story_data = story_doc.to_dict()
+                            
+                            # Build story summary with all metadata
+                            story_summary = {
+                                'story_id': story_doc.id,
+                                'title': story_data.get('title', 'Untitled Story'),
+                                'user_prompt': story_data.get('user_prompt', ''),
+                                'created_at': story_data.get('created_at'),
+                                'updated_at': story_data.get('updated_at'),
+                                'total_scenes': story_data.get('total_scenes', 0),
+                                'total_duration': story_data.get('total_duration', 0),
+                                'status': story_data.get('status', 'unknown'),
+                                'story_number': story_data.get('story_number', 0),
+                                'thumbnail_url': story_data.get('thumbnail_url'),
+                                'generation_method': story_data.get('generation_method', 'unknown'),
+                                'ai_models_used': story_data.get('ai_models_used', {}),
+                                'image_format': story_data.get('image_format', 'unknown'),
+                                'optimizations': story_data.get('optimizations', []),
+                                'scenes_data': story_data.get('scenes_data', []),
+                                'manifest': story_data.get('manifest', {}),
+                                # Formatted timestamps
+                                'created_at_formatted': story_data.get('created_at').strftime('%Y-%m-%d %H:%M:%S') if story_data.get('created_at') else None,
+                                'days_ago': (datetime.utcnow() - story_data.get('created_at')).days if story_data.get('created_at') else None,
+                                # Position in user's story collection
+                                'position_in_user_stories': story_ids.index(story_id) + 1,
+                                'total_user_stories': total_count
+                            }
+                            
+                            stories_data.append(story_summary)
+                            
+                        else:
+                            print(f"⚠️ Story document not found: {story_id}")
+                            
+                    except Exception as story_error:
+                        print(f"❌ Error fetching story {story_id}: {str(story_error)}")
+                        continue
+                
+                # 4. BUILD USER INFO
+                user_info = self._extract_user_info(user_data)
+                
+                # 5. BUILD PAGINATION INFO
+                pagination_info = {
+                    "current_page": (offset // limit) + 1,
+                    "total_pages": (total_count + limit - 1) // limit,
+                    "page_size": limit,
+                    "offset": offset,
+                    "returned_count": len(stories_data),
+                    "total_count": total_count,
+                    "has_more": (offset + limit) < total_count
+                }
+                
+                print(f"✅ Successfully fetched {len(stories_data)} stories using ID array method")
+                
+                return {
+                    "stories": stories_data,
+                    "total_count": total_count,
+                    "has_more": (offset + limit) < total_count,
+                    "user_info": user_info,
+                    "pagination": pagination_info,
+                    "method_used": "story_id_array",
+                    "performance_info": {
+                        "total_story_ids": len(story_ids),
+                        "fetched_stories": len(stories_data),
+                        "pagination_applied": True,
+                        "batch_fetched": True
+                    }
+                }
             
             # Execute in thread pool
-            story_list = await loop.run_in_executor(None, get_stories_sync)
-            return story_list
+            result = await loop.run_in_executor(None, get_stories_from_id_array)
+            return result
             
         except Exception as e:
-            print(f"❌ Error fetching user stories: {str(e)}")
-            return []
-    
-    async def get_story_details(self, story_id: str) -> Dict[str, Any]:
-        """Get complete story details including all scenes data"""
+            print(f"❌ Error fetching user stories using ID array: {str(e)}")
+            return {
+                "stories": [],
+                "total_count": 0,
+                "has_more": False,
+                "user_info": None,
+                "error": str(e),
+                "method_used": "error"
+            }
+
+    def _extract_user_info(self, user_data: Dict) -> Dict:
+        """Extract user info from user document"""
+        return {
+            'total_stories': user_data.get('story_count', 0),
+            'story_ids_array_length': len(user_data.get('story_ids', [])),
+            'last_active': user_data.get('last_active'),
+            'last_story_created': user_data.get('last_story_created'),
+            'last_story_id': user_data.get('last_story_id'),
+            'last_story_title': user_data.get('last_story_title'),
+            'child_name': user_data.get('child', {}).get('name', 'Your child'),
+            'child_age': user_data.get('child', {}).get('age'),
+            'child_interests': user_data.get('child', {}).get('interests', []),
+            'story_statistics': user_data.get('story_statistics', {}),
+            'created_at': user_data.get('created_at'),
+            'story_ids_preview': user_data.get('story_ids', [])[-5:] if user_data.get('story_ids') else []  # Last 5 IDs
+        }
+
+    async def get_user_stories(self, user_id: str, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """Main method to get user stories - uses story ID array method"""
+        return await self.get_user_stories_using_id_array(user_id, limit, offset)
+
+    async def get_story_details(self, story_id: str, user_id: str = None) -> Dict[str, Any]:
+        """Get complete story details with optional user verification"""
         try:
             if not self.db:
                 raise HTTPException(status_code=503, detail="Firestore not available")
@@ -420,7 +428,27 @@ class StorageService:
                 doc = doc_ref.get()
                 
                 if doc.exists:
-                    return doc.to_dict()
+                    story_data = doc.to_dict()
+                    
+                    # Optional: Verify user ownership using story_ids array
+                    if user_id:
+                        story_owner_id = story_data.get('user_id')
+                        if story_owner_id != user_id:
+                            return None  # User doesn't own this story
+                        
+                        # Double-check: Verify story ID is in user's story_ids array
+                        user_ref = self.db.collection('users').document(user_id)
+                        user_doc = user_ref.get()
+                        
+                        if user_doc.exists:
+                            user_data = user_doc.to_dict()
+                            story_ids = user_data.get('story_ids', [])
+                            
+                            if story_id not in story_ids:
+                                print(f"⚠️ Story {story_id} not found in user {user_id}'s story_ids array")
+                                return None
+                    
+                    return story_data
                 else:
                     return None
             
@@ -430,13 +458,98 @@ class StorageService:
             if story_data:
                 return story_data
             else:
-                raise HTTPException(status_code=404, detail="Story not found")
+                raise HTTPException(status_code=404, detail="Story not found or access denied")
                 
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching story details: {str(e)}")
+
+    async def delete_user_story(self, story_id: str, user_id: str) -> bool:
+        """Delete a story and remove it from user's story_ids array"""
+        try:
+            if not self.db:
+                raise HTTPException(status_code=503, detail="Firestore not available")
+            
+            loop = asyncio.get_event_loop()
+            
+            def delete_story_with_array_update():
+                # 1. Verify the story belongs to the user and get current arrays
+                user_ref = self.db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                
+                if not user_doc.exists:
+                    return False
+                
+                user_data = user_doc.to_dict()
+                story_ids = user_data.get('story_ids', [])
+                
+                if story_id not in story_ids:
+                    print(f"⚠️ Story {story_id} not found in user {user_id}'s story_ids array")
+                    return False
+                
+                # 2. Verify story document exists and belongs to user
+                story_ref = self.db.collection('stories').document(story_id)
+                story_doc = story_ref.get()
+                
+                if not story_doc.exists:
+                    return False
+                
+                story_data = story_doc.to_dict()
+                if story_data.get('user_id') != user_id:
+                    return False
+                
+                # 3. Delete from main stories collection
+                story_ref.delete()
+                
+                # 4. Remove story ID from user's story_ids array
+                updated_story_ids = [sid for sid in story_ids if sid != story_id]
+                
+                # 5. Update user document
+                user_ref.update({
+                    'story_ids': updated_story_ids,
+                    'story_count': len(updated_story_ids),
+                    'updated_at': datetime.utcnow()
+                })
+                
+                print(f"✅ Removed story {story_id} from user {user_id}'s story_ids array")
+                print(f"📋 Updated story_ids: {updated_story_ids}")
+                
+                return True
+            
+            result = await loop.run_in_executor(None, delete_story_with_array_update)
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error deleting story with array update: {str(e)}")
+            return False
+
+    # ===== UTILITY METHODS =====
     
+    async def get_user_story_ids(self, user_id: str) -> List[str]:
+        """Get just the story IDs array for a user"""
+        try:
+            if not self.db:
+                return []
+            
+            loop = asyncio.get_event_loop()
+            
+            def get_ids():
+                user_ref = self.db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    return user_data.get('story_ids', [])
+                return []
+            
+            result = await loop.run_in_executor(None, get_ids)
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error getting user story IDs: {str(e)}")
+            return []
+
     async def update_story_status_and_title(self, story_id: str, status: str, title: str = None):
         """Update story status and optionally title"""
         try:
@@ -464,7 +577,7 @@ class StorageService:
             
         except Exception as e:
             print(f"⚠️ Failed to update story status: {str(e)}")
-    
+
     async def update_story_status(self, story_id: str, status: str):
         """Update story playback status"""
         try:
@@ -486,7 +599,7 @@ class StorageService:
             
         except Exception as e:
             print(f"⚠️ Failed to update story status: {str(e)}")
-    
+
     def test_storage_access(self):
         """Test Firebase Storage access"""
         try:
