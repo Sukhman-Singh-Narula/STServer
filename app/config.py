@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # Audio optimization settings
     audio_generation_timeout: int = 30  # Seconds per audio file
     batch_audio_timeout: int = 120  # Seconds for entire batch (OpenAI TTS only)
-    
+    firebase_web_api_key: str = ""  # NEW: Required for authentication
     # Image optimization settings
     image_generation_timeout: int = 45  # Seconds per image (DALL-E 2 is faster than DALL-E 3)
     batch_image_timeout: int = 180  # Seconds for entire image batch (DALL-E 2)
