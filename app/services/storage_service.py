@@ -196,10 +196,14 @@ class StorageService:
                     current_story_count = user_data.get('story_count', 0)
                     existing_story_ids = user_data.get('story_ids', [])
                 
-                new_story_count = current_story_count + 1
-                
-                # Add new story ID to the array (newest at the end)
-                updated_story_ids = existing_story_ids + [story_id]
+                # 🚫 FIX: Only add story_id if it's not already in the array
+                if story_id not in existing_story_ids:
+                    updated_story_ids = existing_story_ids + [story_id]
+                    new_story_count = len(updated_story_ids)
+                else:
+                    updated_story_ids = existing_story_ids
+                    new_story_count = len(updated_story_ids)
+                    print(f"📝 Story {story_id} already exists in user's story_ids array")
                 
                 # Update story document with story number
                 story_doc['story_number'] = new_story_count
@@ -278,9 +282,12 @@ class StorageService:
                 
                 user_data = user_doc.to_dict()
                 story_ids = user_data.get('story_ids', [])
+                
+                # 🚫 FIX: Remove duplicates from story_ids
+                story_ids = list(dict.fromkeys(story_ids))  # Preserves order, removes duplicates
                 total_count = len(story_ids)
                 
-                print(f"📋 Found {total_count} story IDs for user {user_id}")
+                print(f"📋 Found {total_count} unique story IDs for user {user_id}")
                 print(f"📋 Story IDs: {story_ids}")
                 
                 if not story_ids:
@@ -303,14 +310,16 @@ class StorageService:
                 # 3. BATCH FETCH STORY DOCUMENTS USING STORY IDS
                 stories_data = []
                 
-                # Fetch each story document using the ID
+                # 🚫 FIX: Actually fetch each story document using the ID
                 for story_id in paginated_story_ids:
                     try:
+                        print(f"📖 Fetching story document: {story_id}")
                         story_ref = self.db.collection('stories').document(story_id)
                         story_doc = story_ref.get()
                         
                         if story_doc.exists:
                             story_data = story_doc.to_dict()
+                            print(f"✅ Found story: {story_data.get('title', 'Unknown')}")
                             
                             # Build story summary with all metadata
                             story_summary = {

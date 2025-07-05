@@ -285,6 +285,87 @@ async def generate_story_background(
             story_id, user_id, "Generation Failed", prompt, error_manifest
         )
 
+async def cleanup_duplicate_story_ids(self, user_id: str = None):
+    """Clean up duplicate story IDs in user documents"""
+    try:
+        if not self.db:
+            return
+        
+        loop = asyncio.get_event_loop()
+        
+        def cleanup():
+            if user_id:
+                # Clean up specific user
+                user_ref = self.db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    story_ids = user_data.get('story_ids', [])
+                    
+                    # Remove duplicates while preserving order
+                    unique_story_ids = list(dict.fromkeys(story_ids))
+                    
+                    if len(unique_story_ids) != len(story_ids):
+                        print(f"🧹 Cleaning up duplicates for user {user_id}: {len(story_ids)} -> {len(unique_story_ids)}")
+                        
+                        user_ref.update({
+                            'story_ids': unique_story_ids,
+                            'story_count': len(unique_story_ids),
+                            'updated_at': datetime.utcnow()
+                        })
+            else:
+                # Clean up all users
+                users_ref = self.db.collection('users')
+                users = users_ref.stream()
+                
+                for user_doc in users:
+                    user_data = user_doc.to_dict()
+                    story_ids = user_data.get('story_ids', [])
+                    
+                    # Remove duplicates while preserving order
+                    unique_story_ids = list(dict.fromkeys(story_ids))
+                    
+                    if len(unique_story_ids) != len(story_ids):
+                        print(f"🧹 Cleaning up duplicates for user {user_doc.id}: {len(story_ids)} -> {len(unique_story_ids)}")
+                        
+                        user_doc.reference.update({
+                            'story_ids': unique_story_ids,
+                            'story_count': len(unique_story_ids),
+                            'updated_at': datetime.utcnow()
+                        })
+        
+        await loop.run_in_executor(None, cleanup)
+        print("✅ Duplicate story IDs cleanup completed")
+        
+    except Exception as e:
+        print(f"❌ Error during cleanup: {str(e)}")
+
+# Add an endpoint to trigger cleanup
+@router.post("/stories/cleanup-duplicates")
+async def cleanup_duplicate_story_ids_endpoint(
+    request: TokenVerificationRequest,
+    response: Response,
+    storage_service: StorageService = Depends(get_storage_service)
+):
+    """Clean up duplicate story IDs for the current user"""
+    add_cors_headers(response)
+    
+    try:
+        # Verify Firebase token
+        user_info = await verify_firebase_token(request.firebase_token)
+        user_id = user_info['uid']
+        
+        await storage_service.cleanup_duplicate_story_ids(user_id)
+        
+        return {
+            "success": True,
+            "message": "Duplicate story IDs cleaned up successfully"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
+
 @router.get("/fetch/{story_id}")
 async def fetch_story_status(
     story_id: str,
