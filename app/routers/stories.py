@@ -12,6 +12,7 @@ from app.dependencies import verify_firebase_token
 from app.utils.helpers import calculate_audio_duration
 from openai import OpenAI
 from app.config import settings
+from app.models.auth import TokenVerificationRequest
 
 router = APIRouter(prefix="/stories", tags=["stories"])
 
