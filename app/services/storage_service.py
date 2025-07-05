@@ -4,7 +4,7 @@
 import tempfile
 import io
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Tuple
 from fastapi import HTTPException
 import httpx
@@ -251,7 +251,7 @@ class StorageService:
             print(f"⚠️ Failed to save story metadata with arrays: {str(e)}")
 
     async def get_user_stories_using_id_array(self, user_id: str, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
-        """Get user stories using the story ID array - MAIN METHOD"""
+        """Get user stories using the story ID array - MAIN METHOD with timezone fix"""
         try:
             if not self.db:
                 print("⚠️ Firestore not available")
@@ -283,8 +283,8 @@ class StorageService:
                 user_data = user_doc.to_dict()
                 story_ids = user_data.get('story_ids', [])
                 
-                # 🚫 FIX: Remove duplicates from story_ids
-                story_ids = list(dict.fromkeys(story_ids))  # Preserves order, removes duplicates
+                # Remove duplicates from story_ids
+                story_ids = list(dict.fromkeys(story_ids))
                 total_count = len(story_ids)
                 
                 print(f"📋 Found {total_count} unique story IDs for user {user_id}")
@@ -301,7 +301,6 @@ class StorageService:
                     }
                 
                 # 2. APPLY PAGINATION TO STORY IDS (newest first)
-                # Reverse the array to get newest stories first, then paginate
                 story_ids_reversed = list(reversed(story_ids))
                 paginated_story_ids = story_ids_reversed[offset:offset + limit]
                 
@@ -310,7 +309,39 @@ class StorageService:
                 # 3. BATCH FETCH STORY DOCUMENTS USING STORY IDS
                 stories_data = []
                 
-                # 🚫 FIX: Actually fetch each story document using the ID
+                def safe_datetime_conversion(dt_value):
+                    """Safely convert datetime values with timezone handling"""
+                    if dt_value is None:
+                        return None
+                    
+                    try:
+                        # If it's already a datetime object
+                        if isinstance(dt_value, datetime):
+                            # If it's naive, make it timezone aware (UTC)
+                            if dt_value.tzinfo is None:
+                                return dt_value.replace(tzinfo=timezone.utc)
+                            return dt_value
+                        
+                        # If it's a Firestore timestamp
+                        if hasattr(dt_value, 'seconds'):
+                            return datetime.fromtimestamp(dt_value.seconds, tz=timezone.utc)
+                        
+                        # If it's a string, try to parse it
+                        if isinstance(dt_value, str):
+                            try:
+                                parsed_dt = datetime.fromisoformat(dt_value.replace('Z', '+00:00'))
+                                if parsed_dt.tzinfo is None:
+                                    return parsed_dt.replace(tzinfo=timezone.utc)
+                                return parsed_dt
+                            except:
+                                return datetime.now(timezone.utc)  # Fallback
+                        
+                        return datetime.now(timezone.utc)  # Final fallback
+                    except Exception as e:
+                        print(f"⚠️ Datetime conversion error: {e}")
+                        return datetime.now(timezone.utc)
+                
+                # Fetch each story document
                 for story_id in paginated_story_ids:
                     try:
                         print(f"📖 Fetching story document: {story_id}")
@@ -321,13 +352,31 @@ class StorageService:
                             story_data = story_doc.to_dict()
                             print(f"✅ Found story: {story_data.get('title', 'Unknown')}")
                             
-                            # Build story summary with all metadata
+                            # Safe datetime conversion
+                            created_at = safe_datetime_conversion(story_data.get('created_at'))
+                            updated_at = safe_datetime_conversion(story_data.get('updated_at'))
+                            
+                            # Calculate days ago safely
+                            days_ago = None
+                            created_at_formatted = None
+                            
+                            try:
+                                if created_at:
+                                    now_utc = datetime.now(timezone.utc)
+                                    days_ago = (now_utc - created_at).days
+                                    created_at_formatted = created_at.strftime('%Y-%m-%d %H:%M:%S')
+                            except Exception as e:
+                                print(f"⚠️ Date calculation error: {e}")
+                                days_ago = 0
+                                created_at_formatted = "Unknown"
+                            
+                            # Build story summary with safe datetime handling
                             story_summary = {
                                 'story_id': story_doc.id,
                                 'title': story_data.get('title', 'Untitled Story'),
                                 'user_prompt': story_data.get('user_prompt', ''),
-                                'created_at': story_data.get('created_at'),
-                                'updated_at': story_data.get('updated_at'),
+                                'created_at': created_at,
+                                'updated_at': updated_at,
                                 'total_scenes': story_data.get('total_scenes', 0),
                                 'total_duration': story_data.get('total_duration', 0),
                                 'status': story_data.get('status', 'unknown'),
@@ -340,14 +389,15 @@ class StorageService:
                                 'scenes_data': story_data.get('scenes_data', []),
                                 'manifest': story_data.get('manifest', {}),
                                 # Formatted timestamps
-                                'created_at_formatted': story_data.get('created_at').strftime('%Y-%m-%d %H:%M:%S') if story_data.get('created_at') else None,
-                                'days_ago': (datetime.utcnow() - story_data.get('created_at')).days if story_data.get('created_at') else None,
+                                'created_at_formatted': created_at_formatted,
+                                'days_ago': days_ago,
                                 # Position in user's story collection
-                                'position_in_user_stories': story_ids.index(story_id) + 1,
+                                'position_in_user_stories': story_ids.index(story_id) + 1 if story_id in story_ids else 0,
                                 'total_user_stories': total_count
                             }
                             
                             stories_data.append(story_summary)
+                            print(f"✅ Story {story_id} processed successfully")
                             
                         else:
                             print(f"⚠️ Story document not found: {story_id}")
@@ -356,7 +406,7 @@ class StorageService:
                         print(f"❌ Error fetching story {story_id}: {str(story_error)}")
                         continue
                 
-                # 4. BUILD USER INFO
+                # 4. BUILD USER INFO with safe datetime handling
                 user_info = self._extract_user_info(user_data)
                 
                 # 5. BUILD PAGINATION INFO
@@ -403,25 +453,50 @@ class StorageService:
             }
 
     def _extract_user_info(self, user_data: Dict) -> Dict:
-        """Extract user info from user document"""
+        """Extract user info from user document with timezone-aware datetime handling"""
+        def safe_datetime(dt_value):
+            """Safely handle datetime conversion with timezone awareness"""
+            if dt_value is None:
+                return None
+            
+            # If it's already a datetime object
+            if isinstance(dt_value, datetime):
+                # If it's naive (no timezone), make it UTC
+                if dt_value.tzinfo is None:
+                    return dt_value.replace(tzinfo=timezone.utc)
+                return dt_value
+            
+            # If it's a string, try to parse it
+            if isinstance(dt_value, str):
+                try:
+                    parsed_dt = datetime.fromisoformat(dt_value.replace('Z', '+00:00'))
+                    if parsed_dt.tzinfo is None:
+                        return parsed_dt.replace(tzinfo=timezone.utc)
+                    return parsed_dt
+                except:
+                    return None
+            
+            # If it's a Firestore timestamp, convert it
+            if hasattr(dt_value, 'seconds'):  # Firestore Timestamp
+                return datetime.fromtimestamp(dt_value.seconds, tz=timezone.utc)
+            
+            return None
+
         return {
             'total_stories': user_data.get('story_count', 0),
             'story_ids_array_length': len(user_data.get('story_ids', [])),
-            'last_active': user_data.get('last_active'),
-            'last_story_created': user_data.get('last_story_created'),
+            'last_active': safe_datetime(user_data.get('last_active')),
+            'last_story_created': safe_datetime(user_data.get('last_story_created')),
             'last_story_id': user_data.get('last_story_id'),
             'last_story_title': user_data.get('last_story_title'),
             'child_name': user_data.get('child', {}).get('name', 'Your child'),
             'child_age': user_data.get('child', {}).get('age'),
             'child_interests': user_data.get('child', {}).get('interests', []),
             'story_statistics': user_data.get('story_statistics', {}),
-            'created_at': user_data.get('created_at'),
-            'story_ids_preview': user_data.get('story_ids', [])[-5:] if user_data.get('story_ids') else []  # Last 5 IDs
+            'created_at': safe_datetime(user_data.get('created_at')),
+            'story_ids_preview': user_data.get('story_ids', [])[-5:] if user_data.get('story_ids') else []
         }
 
-    async def get_user_stories(self, user_id: str, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
-        """Main method to get user stories - uses story ID array method"""
-        return await self.get_user_stories_using_id_array(user_id, limit, offset)
 
     async def get_story_details(self, story_id: str, user_id: str = None) -> Dict[str, Any]:
         """Get complete story details with optional user verification"""
