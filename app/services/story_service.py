@@ -38,8 +38,8 @@ class StoryService:
             Structure your response as exactly {settings.max_scenes} scenes. Each scene should be engaging and age-appropriate.
             
             For each scene, provide:
-            1. The scene text (2-3 sentences that are perfect for {child_name})
-            2. A detailed visual description for DALL-E image generation (include style: children's book illustration, colorful, friendly)
+            1. The scene text
+            2. A detailed visual description for DALL-E image generation anime style illustration
             
             Format your response as valid JSON:
             {{
@@ -47,12 +47,12 @@ class StoryService:
                 "scenes": [
                     {{
                         "scene_number": 1,
-                        "text": "Scene text here (2-3 sentences)...",
+                        "text": "Scene text here",
                         "visual_prompt": "Detailed visual description for DALL-E image generation. Style: Children's book illustration, colorful and friendly..."
                     }},
                     {{
                         "scene_number": 2,
-                        "text": "Scene text here (2-3 sentences)...",
+                        "text": "Scene text here...",
                         "visual_prompt": "Detailed visual description for DALL-E image generation. Style: Children's book illustration, colorful and friendly..."
                     }}
                 ]
@@ -63,7 +63,7 @@ class StoryService:
             
             # Generate story using OpenAI
             response = self.openai_client.chat.completions.create(
-                model="gpt-4",  # Using GPT-4 for better story quality
+                model="gpt-4",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": story_generation_prompt}

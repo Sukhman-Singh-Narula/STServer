@@ -38,8 +38,8 @@ class MediaService:
                     
                     def create_tts():
                         response = self.openai_client.audio.speech.create(
-                            model="tts-1",  # Faster model
-                            voice="nova",   # Child-friendly voice
+                            model="gpt-4o-mini-tts",  # Faster model
+                            voice="coral",   # Child-friendly voice
                             input=text,
                             response_format="mp3"
                         )
