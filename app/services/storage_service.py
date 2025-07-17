@@ -205,9 +205,12 @@ class StorageService:
             # Convert image to grayscale using PIL
             image = Image.open(io.BytesIO(image_data))
             
-            # Resize to 304x304 (no cropping needed as Replicate generates 304x304)
+            # Image should already be 304x304 from media service, but verify
             if image.size != (304, 304):
+                print(f"⚠️ Unexpected image size {image.size}, resizing to 304x304")
                 image = image.resize((304, 304), Image.LANCZOS)
+            else:
+                print(f"✅ Image already at correct size: {image.size}")
             
             # Create grayscale version
             grayscale_image = image.convert('L')

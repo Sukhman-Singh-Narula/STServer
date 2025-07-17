@@ -113,10 +113,10 @@ class MediaService:
                             # Enhance the prompt for children's book style
                             enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
                             
-                            # Replicate SDXL input configuration
+                            # Replicate SDXL input configuration - generate at 1024x1024 for best quality
                             input_config = {
-                                "width": 304,  # 304x304 (divisible by 8 for SDXL)
-                                "height": 304,
+                                "width": 1024,  # Generate at high quality
+                                "height": 1024,
                                 "prompt": enhanced_prompt,
                                 "refine": "expert_ensemble_refiner",
                                 "apply_watermark": False,
@@ -131,9 +131,27 @@ class MediaService:
                             
                             # Get the first output and read as bytes
                             for item in output:
-                                return item.read()
+                                image_data = item.read()
+                                break
+                            else:
+                                raise Exception("No output generated from Replicate")
                             
-                            raise Exception("No output generated from Replicate")
+                            # Resize from 1024x1024 to 304x304 using PIL
+                            image = Image.open(io.BytesIO(image_data))
+                            resized_image = image.resize((304, 304), Image.LANCZOS)
+                            
+                            # Save resized image back to bytes
+                            output_buffer = io.BytesIO()
+                            format = image.format if image.format else 'JPEG'
+                            if format not in ['JPEG', 'PNG']:
+                                format = 'JPEG'
+                            
+                            if format == 'JPEG':
+                                resized_image.save(output_buffer, format='JPEG', quality=85, optimize=True)
+                            else:
+                                resized_image.save(output_buffer, format=format, optimize=True)
+                            
+                            return output_buffer.getvalue()
                         
                         image_data = await loop.run_in_executor(None, create_image)
                         
@@ -300,38 +318,62 @@ class MediaService:
             return image_data  # Return original if conversion fails
     
     async def generate_image_replicate(self, visual_prompt: str, scene_number: int) -> bytes:
-        """Generate image using Replicate SDXL at 300x300 (main method)"""
+        """Generate image using Replicate SDXL at 1024x1024 then resize to 304x304 (main method)"""
         try:
-            print(f"🖼️ Generating image for scene {scene_number} with Replicate SDXL")
+            print(f"🖼️ Generating image for scene {scene_number} with Replicate SDXL (1024x1024 → 304x304)")
             
             # Enhance the prompt for children's book style
             enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
             
-            # Replicate SDXL input configuration
+            # Replicate SDXL input configuration - generate at 1024x1024 for best quality
             input_config = {
-                "width": 304,  # 304x304 (divisible by 8 for SDXL)
-                "height": 304,
+                "width": 1024,  # Generate at high quality
+                "height": 1024,
                 "prompt": enhanced_prompt,
                 "refine": "expert_ensemble_refiner",
                 "apply_watermark": False,
                 "num_inference_steps": 25
             }
             
-            # Generate image using Replicate SDXL
-            output = replicate.run(
-                "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-                input=input_config
-            )
+            # Run Replicate generation in thread pool
+            loop = asyncio.get_event_loop()
             
-            # Get the first output and read as bytes
-            for item in output:
-                image_data = item.read()
-                break
-            else:
-                raise Exception("No output generated from Replicate")
+            def create_and_resize_image():
+                # Generate image using Replicate SDXL
+                output = replicate.run(
+                    "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
+                    input=input_config
+                )
+                
+                # Get the first output and read as bytes
+                for item in output:
+                    image_data = item.read()
+                    break
+                else:
+                    raise Exception("No output generated from Replicate")
+                
+                # Resize from 1024x1024 to 304x304 using PIL
+                image = Image.open(io.BytesIO(image_data))
+                resized_image = image.resize((304, 304), Image.LANCZOS)
+                
+                # Save resized image back to bytes
+                output_buffer = io.BytesIO()
+                format = image.format if image.format else 'JPEG'
+                if format not in ['JPEG', 'PNG']:
+                    format = 'JPEG'
+                
+                if format == 'JPEG':
+                    resized_image.save(output_buffer, format='JPEG', quality=85, optimize=True)
+                else:
+                    resized_image.save(output_buffer, format=format, optimize=True)
+                
+                return output_buffer.getvalue()
             
-            print(f"✅ Replicate SDXL color image generated for scene {scene_number}: {len(image_data)} bytes")
-            return image_data
+            # Execute in thread pool
+            resized_image_data = await loop.run_in_executor(None, create_and_resize_image)
+            
+            print(f"✅ Replicate SDXL image generated and resized for scene {scene_number}: {len(resized_image_data)} bytes (304x304)")
+            return resized_image_data
             
         except Exception as e:
             print(f"❌ Replicate SDXL error for scene {scene_number}: {str(e)}")

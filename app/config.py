@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     # Story settings
     max_scenes: int = 5
     audio_format: str = "mp3"
-    image_size: str = "304x304"  # Updated to 304x304 for Replicate (divisible by 8)
+    image_size: str = "304x304"  # Final size after resizing from 1024x1024
+    replicate_generation_size: str = "1024x1024"  # Generate at high quality, then resize
     
     # Performance optimization settings
     max_concurrent_scenes: int = 3  # Process 3 scenes in parallel
