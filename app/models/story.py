@@ -20,6 +20,7 @@ class StoryScene:
     visual_prompt: str
     audio_url: str = ""
     image_url: str = ""
+    colored_image_url: str = ""
     start_time: int = 0
 
 @dataclass

@@ -79,7 +79,7 @@ class StorageService:
             raise HTTPException(status_code=500, detail=error_msg)
     
     async def upload_image_data(self, image_data: bytes, story_id: str, scene_number: int) -> str:
-        """Upload grayscale image data directly to Firebase Storage"""
+        """Upload grayscale image data directly to Firebase Storage (legacy method)"""
         try:
             if not self.bucket:
                 raise HTTPException(status_code=503, detail="Firebase Storage not available")
@@ -134,6 +134,113 @@ class StorageService:
             raise
         except Exception as e:
             error_msg = f"Grayscale image upload failed for scene {scene_number}: {str(e)}"
+            print(f"❌ {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
+
+    async def upload_colored_image(self, image_data: bytes, story_id: str, scene_number: int) -> str:
+        """Upload colored image data directly to Firebase Storage"""
+        try:
+            if not self.bucket:
+                raise HTTPException(status_code=503, detail="Firebase Storage not available")
+            
+            print(f"📤 Uploading colored image data: {len(image_data)} bytes")
+            
+            # Validate image data
+            if len(image_data) < 1000:  # Less than 1KB is probably an error
+                raise Exception(f"Image data too small: {len(image_data)} bytes")
+            
+            # Detect image format and set filename accordingly
+            content_type = "image/jpeg"
+            file_extension = "jpg"
+            
+            if image_data.startswith(b'\x89PNG'):
+                content_type = "image/png"
+                file_extension = "png"
+                print(f"🖼️ Detected PNG format (colored)")
+            elif image_data.startswith(b'\xff\xd8'):
+                content_type = "image/jpeg"
+                file_extension = "jpg"
+                print(f"🖼️ Detected JPEG format (colored)")
+            else:
+                print(f"⚠️ Unknown image format, assuming JPEG (colored)")
+            
+            # Use _colored suffix to indicate the original colored image
+            filename = f"stories/{story_id}/images/scene_{scene_number}_colored.{file_extension}"
+            
+            # Create blob and upload in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            
+            def upload_image_sync():
+                blob = self.bucket.blob(filename)
+                
+                # Upload image data
+                blob.upload_from_string(image_data, content_type=content_type)
+                blob.make_public()
+                
+                # Verify upload
+                if blob.exists():
+                    return blob.public_url
+                else:
+                    raise Exception("Upload completed but file verification failed")
+            
+            # Run upload in thread pool
+            public_url = await loop.run_in_executor(None, upload_image_sync)
+            
+            print(f"✅ Colored image uploaded successfully: {public_url}")
+            return public_url
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            error_msg = f"Colored image upload failed for scene {scene_number}: {str(e)}"
+            print(f"❌ {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
+
+    async def upload_both_images(self, image_data: bytes, story_id: str, scene_number: int) -> Dict[str, str]:
+        """Upload both colored and grayscale versions of the same image"""
+        try:
+            from PIL import Image
+            import io
+            
+            # Convert image to grayscale using PIL
+            image = Image.open(io.BytesIO(image_data))
+            
+            # Resize to 304x304 (no cropping needed as Replicate generates 304x304)
+            if image.size != (304, 304):
+                image = image.resize((304, 304), Image.LANCZOS)
+            
+            # Create grayscale version
+            grayscale_image = image.convert('L')
+            
+            # Save grayscale image to bytes
+            grayscale_buffer = io.BytesIO()
+            
+            # Determine format from original image
+            format = image.format if image.format else 'JPEG'
+            if format not in ['JPEG', 'PNG']:
+                format = 'JPEG'  # Default to JPEG for unsupported formats
+            
+            # Save grayscale image
+            if format == 'JPEG':
+                grayscale_image.save(grayscale_buffer, format='JPEG', quality=85, optimize=True)
+            else:
+                grayscale_image.save(grayscale_buffer, format=format, optimize=True)
+            
+            grayscale_data = grayscale_buffer.getvalue()
+            
+            # Upload both versions in parallel
+            colored_task = self.upload_colored_image(image_data, story_id, scene_number)
+            grayscale_task = self.upload_image_data(grayscale_data, story_id, scene_number)
+            
+            colored_url, grayscale_url = await asyncio.gather(colored_task, grayscale_task)
+            
+            return {
+                "colored_url": colored_url,
+                "grayscale_url": grayscale_url
+            }
+            
+        except Exception as e:
+            error_msg = f"Both image uploads failed for scene {scene_number}: {str(e)}"
             print(f"❌ {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
 

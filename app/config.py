@@ -10,12 +10,13 @@ class Settings(BaseSettings):
     # API Keys
     groq_api_key: str = ""
     openai_api_key: str = ""
-    # elevenlabs_api_key: str = ""  # Removed - using OpenAI TTS only
+    replicate_api_token: str = ""
+    
     
     # Story settings
     max_scenes: int = 5
     audio_format: str = "mp3"
-    image_size: str = "1792x1024"  # Keep original size (not smaller for speed)
+    image_size: str = "304x304"  # Updated to 304x304 for Replicate (divisible by 8)
     
     # Performance optimization settings
     max_concurrent_scenes: int = 3  # Process 3 scenes in parallel
@@ -82,10 +83,8 @@ class Settings(BaseSettings):
     
     @property
     def effective_image_size(self) -> str:
-        """Get effective image size - always use DALL-E 2 optimized size"""
-        # DALL-E 2 supports: 256x256, 512x512, 1024x1024
-        # We'll use 1024x1024 and resize to target size if needed
-        return "1024x1024"
+        """Get effective image size - use 304x304 for Replicate (divisible by 8)"""
+        return "304x304"
     
     class Config:
         env_file = ".env"

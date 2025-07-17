@@ -2,6 +2,7 @@
 # Replace your app/routers/stories.py with this enhanced version
 
 import asyncio
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Response, Query
 from app.models.story import StoryPromptRequest, SystemPromptUpdate
 from app.services.story_service import StoryService
@@ -75,10 +76,10 @@ async def process_scenes_parallel_optimized(scenes, story_id, media_service, sto
     # Create upload tasks for all media files
     upload_tasks = []
     for i, scene in enumerate(scenes):
-        # Upload audio and image for each scene in parallel
+        # Upload audio and both image versions for each scene in parallel
         scene_upload_tasks = [
             storage_service.upload_audio(audio_batch[i], story_id, scene.scene_number),
-            storage_service.upload_image_data(image_batch[i], story_id, scene.scene_number)
+            storage_service.upload_both_images(image_batch[i], story_id, scene.scene_number)
         ]
         upload_tasks.extend(scene_upload_tasks)
     
@@ -90,21 +91,23 @@ async def process_scenes_parallel_optimized(scenes, story_id, media_service, sto
     for i, scene in enumerate(scenes):
         # Get URLs from upload results
         audio_url = upload_results[i * 2]      # Even indices are audio URLs
-        image_url = upload_results[i * 2 + 1]  # Odd indices are image URLs
+        image_urls = upload_results[i * 2 + 1]  # Odd indices are image URL dictionaries
         
         # Calculate timing
         audio_duration = calculate_audio_duration(scene.text)
         
         # Update scene with URLs and timing
         scene.audio_url = audio_url
-        scene.image_url = image_url
+        scene.image_url = image_urls["grayscale_url"]  # Keep grayscale for backward compatibility
+        scene.colored_image_url = image_urls["colored_url"]  # Add colored image URL
         scene.start_time = 0  # Will be calculated later
         
         processed_scenes.append((scene, audio_duration))
         
         print(f"✅ Scene {scene.scene_number} processed with parallel uploads:")
         print(f"  Audio: {audio_url}")
-        print(f"  Image: {image_url}")
+        print(f"  Image (grayscale): {scene.image_url}")
+        print(f"  Image (colored): {scene.colored_image_url}")
     
     print(f"🎉 ALL {len(processed_scenes)} scenes processed with FULL parallelization!")
     return processed_scenes
@@ -235,7 +238,8 @@ async def generate_story_background(
                 "text": scene.text,
                 "visual_prompt": scene.visual_prompt,
                 "audio_url": scene.audio_url,
-                "image_url": scene.image_url,
+                "image_url": scene.image_url,  # Grayscale image (backward compatibility)
+                "colored_image_url": scene.colored_image_url,  # Colored image
                 "start_time": scene.start_time,
                 "duration": calculate_audio_duration(scene.text)
             }
@@ -251,15 +255,16 @@ async def generate_story_background(
             "scenes": scenes_data,
             "generated_at": "now",
             "status": "completed",
-            "generation_method": "fully_optimized_parallel_dalle2_openai_tts_with_id_arrays",
+            "generation_method": "fully_optimized_parallel_replicate_sdxl_openai_tts_with_id_arrays",
             "optimizations": [
                 "parallel_scene_processing",
-                "dalle2_for_speed", 
+                "replicate_sdxl_for_speed", 
                 "batch_openai_tts_generation",
-                "batch_dalle2_image_generation",
+                "batch_replicate_sdxl_image_generation",
                 "parallel_firebase_uploads",
                 "story_id_array_tracking",
-                "full_parallelization"
+                "full_parallelization",
+                "dual_image_storage_colored_and_grayscale"
             ]
         }
         

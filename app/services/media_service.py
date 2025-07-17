@@ -1,16 +1,19 @@
-# ===== app/services/media_service.py - OPTIMIZED WITH BATCH PROCESSING AND DALL-E 2 =====
+# ===== app/services/media_service.py - OPTIMIZED WITH BATCH PROCESSING AND REPLICATE =====
 import io
 import base64
 import asyncio
 from typing import Union, List, Dict
 from fastapi import HTTPException
 from openai import OpenAI
+import replicate
 from app.config import settings
 from PIL import Image
 
 class MediaService:
     def __init__(self, openai_client: OpenAI):
         self.openai_client = openai_client
+        # Configure Replicate with API token
+        replicate.api_token = settings.replicate_api_token
     
     async def generate_audio_batch(self, scene_texts: List[Dict]) -> List[bytes]:
         """Generate audio for multiple scenes in parallel using OpenAI TTS"""
@@ -89,58 +92,60 @@ class MediaService:
             raise e
     
     async def generate_image_batch(self, visual_prompts: List[Dict]) -> List[bytes]:
-        """Generate images for multiple scenes in parallel using DALL-E 2 (with concurrency control)"""
+        """Generate images for multiple scenes in parallel using Replicate SDXL (with concurrency control)"""
         try:
-            print(f"🖼️ Starting DALL-E 2 batch image generation for {len(visual_prompts)} scenes...")
+            print(f"🖼️ Starting Replicate SDXL batch image generation for {len(visual_prompts)} scenes...")
             
             # Create semaphore to limit concurrent requests (avoid rate limiting)
-            semaphore = asyncio.Semaphore(2)  # Max 2 concurrent image requests (more conservative)
+            semaphore = asyncio.Semaphore(2)  # Max 2 concurrent image requests
             
-            async def generate_single_image_dalle2(prompt_data):
-                """Generate image for a single scene using DALL-E 2"""
+            async def generate_single_image_replicate(prompt_data):
+                """Generate image for a single scene using Replicate SDXL"""
                 visual_prompt = prompt_data['visual_prompt']
                 scene_number = prompt_data['scene_number']
                 
                 async with semaphore:  # Limit concurrency
                     try:
-                        # Run DALL-E 2 generation in thread pool
+                        # Run Replicate generation in thread pool
                         loop = asyncio.get_event_loop()
                         
                         def create_image():
                             # Enhance the prompt for children's book style
                             enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
                             
-                            # Use DALL-E 2 for faster generation
-                            response = self.openai_client.images.generate(
-                                model="dall-e-2",  # Much faster than DALL-E 3
-                                prompt=enhanced_prompt,
-                                size='1024x1024',  # Keep original size (1792x1024)
-                                n=1,
-                                response_format="b64_json"  # Get base64 data instead of URL
+                            # Replicate SDXL input configuration
+                            input_config = {
+                                "width": 304,  # 304x304 (divisible by 8 for SDXL)
+                                "height": 304,
+                                "prompt": enhanced_prompt,
+                                "refine": "expert_ensemble_refiner",
+                                "apply_watermark": False,
+                                "num_inference_steps": 25
+                            }
+                            
+                            # Generate image using Replicate SDXL
+                            output = replicate.run(
+                                "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
+                                input=input_config
                             )
                             
-                            # Extract base64 image data
-                            image_b64 = response.data[0].b64_json
-                            image_data = base64.b64decode(image_b64)
+                            # Get the first output and read as bytes
+                            for item in output:
+                                return item.read()
                             
-                            return image_data
+                            raise Exception("No output generated from Replicate")
                         
                         image_data = await loop.run_in_executor(None, create_image)
                         
-                        print(f"✅ DALL-E 2 color image generated for scene {scene_number}: {len(image_data)} bytes")
-                        
-                        # Convert to grayscale
-                        grayscale_image_data = self.convert_image_to_grayscale_and_resize(image_data)
-                        
-                        print(f"✅ Final grayscale image ready for scene {scene_number}: {len(grayscale_image_data)} bytes")
-                        return grayscale_image_data
+                        print(f"✅ Replicate SDXL color image generated for scene {scene_number}: {len(image_data)} bytes")
+                        return image_data
                         
                     except Exception as e:
-                        print(f"❌ DALL-E 2 batch error for scene {scene_number}: {str(e)}")
+                        print(f"❌ Replicate SDXL batch error for scene {scene_number}: {str(e)}")
                         raise e
             
             # Create tasks for parallel processing
-            tasks = [generate_single_image_dalle2(prompt_data) for prompt_data in visual_prompts]
+            tasks = [generate_single_image_replicate(prompt_data) for prompt_data in visual_prompts]
             
             # Execute all image generation tasks in parallel with timeout
             print(f"⏰ Starting controlled parallel image generation (max 2 concurrent)...")
@@ -153,19 +158,19 @@ class MediaService:
             image_batch = []
             for i, result in enumerate(image_results):
                 if isinstance(result, Exception):
-                    print(f"❌ DALL-E 2 batch failed for scene {i+1}: {result}")
+                    print(f"❌ Replicate SDXL batch failed for scene {i+1}: {result}")
                     raise result
                 else:
                     image_batch.append(result)
             
-            print(f"✅ DALL-E 2 batch image generation completed: {len(image_batch)} files")
+            print(f"✅ Replicate SDXL batch image generation completed: {len(image_batch)} files")
             return image_batch
             
         except asyncio.TimeoutError:
-            print(f"❌ DALL-E 2 image batch timed out after 4 minutes")
+            print(f"❌ Replicate SDXL image batch timed out after 4 minutes")
             raise HTTPException(status_code=500, detail="Image generation timed out")
         except Exception as e:
-            print(f"❌ DALL-E 2 batch processing failed: {str(e)}")
+            print(f"❌ Replicate SDXL batch processing failed: {str(e)}")
             raise e
         """Batch audio generation using OpenAI TTS (parallel processing)"""
         try:
@@ -294,128 +299,47 @@ class MediaService:
             print(f"🔄 Returning original image data")
             return image_data  # Return original if conversion fails
     
-    async def generate_image_dalle2(self, visual_prompt: str, scene_number: int) -> bytes:
-        """Generate image using DALL-E 2 for speed (optimized method)"""
+    async def generate_image_replicate(self, visual_prompt: str, scene_number: int) -> bytes:
+        """Generate image using Replicate SDXL at 300x300 (main method)"""
         try:
-            print(f"🖼️ Generating image for scene {scene_number} with DALL-E 2 (optimized)")
+            print(f"🖼️ Generating image for scene {scene_number} with Replicate SDXL")
             
             # Enhance the prompt for children's book style
             enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
             
-            # Use DALL-E 2 for faster generation (keeping original image size)
-            response = self.openai_client.images.generate(
-                model="dall-e-2",  # Much faster than DALL-E 3
-                prompt=enhanced_prompt,
-                size='1024x1024',  # Keep original size (1792x1024 or 960x540)
-                n=1,
-                response_format="b64_json"  # Get base64 data instead of URL
+            # Replicate SDXL input configuration
+            input_config = {
+                "width": 304,  # 304x304 (divisible by 8 for SDXL)
+                "height": 304,
+                "prompt": enhanced_prompt,
+                "refine": "expert_ensemble_refiner",
+                "apply_watermark": False,
+                "num_inference_steps": 25
+            }
+            
+            # Generate image using Replicate SDXL
+            output = replicate.run(
+                "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
+                input=input_config
             )
             
-            # Extract base64 image data
-            image_b64 = response.data[0].b64_json
-            image_data = base64.b64decode(image_b64)
+            # Get the first output and read as bytes
+            for item in output:
+                image_data = item.read()
+                break
+            else:
+                raise Exception("No output generated from Replicate")
             
-            print(f"✅ DALL-E 2 color image generated for scene {scene_number}: {len(image_data)} bytes")
-            
-            # Convert to grayscale and resize to 960x540
-            grayscale_image_data = self.convert_image_to_grayscale_and_resize(image_data)
-            
-            print(f"✅ Final 960x540 grayscale image ready for scene {scene_number}: {len(grayscale_image_data)} bytes")
-            return grayscale_image_data
+            print(f"✅ Replicate SDXL color image generated for scene {scene_number}: {len(image_data)} bytes")
+            return image_data
             
         except Exception as e:
-            print(f"❌ DALL-E 2 error for scene {scene_number}: {str(e)}")
-            
-            # Fallback: try URL method if base64 fails
-            try:
-                print(f"🔄 Trying DALL-E 2 URL fallback method for scene {scene_number}...")
-                return await self.generate_image_dalle2_url_fallback(visual_prompt, scene_number)
-            except Exception as fallback_error:
-                print(f"❌ DALL-E 2 URL fallback also failed: {str(fallback_error)}")
-                # Final fallback to DALL-E 3
-                try:
-                    print(f"🔄 Final fallback: trying DALL-E 3 for scene {scene_number}...")
-                    return await self.generate_image_dalle3_fallback(visual_prompt, scene_number)
-                except Exception as final_error:
-                    print(f"❌ All image generation methods failed: {str(final_error)}")
-                    raise HTTPException(
-                        status_code=500, 
-                        detail=f"DALL-E 2 image generation failed for scene {scene_number}: {str(e)}"
-                    )
-    
-    async def generate_image_dalle2_url_fallback(self, visual_prompt: str, scene_number: int) -> bytes:
-        """Fallback: Generate image with DALL-E 2 URL method, download, and convert to grayscale"""
-        import httpx
-        from PIL import Image
-        from io import BytesIO
-
-        try:
-            enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
-            
-            response = self.openai_client.images.generate(
-                model="dall-e-2",  # Use DALL-E 2 for speed
-                prompt=enhanced_prompt,
-                size='1024x1024',  # Keep original size
-                n=1,
-                response_format="url"
+            print(f"❌ Replicate SDXL error for scene {scene_number}: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Replicate SDXL image generation failed for scene {scene_number}: {str(e)}"
             )
-
-            image_url = response.data[0].url
-            print(f"🔗 DALL-E 2 URL generated, attempting immediate download...")
-
-            # Immediately download with aggressive timeout settings
-            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-                download_response = await client.get(image_url)
-                download_response.raise_for_status()
-                image_data = download_response.content
-                print(f"✅ DALL-E 2 fallback download successful: {len(image_data)} bytes")
-
-                # Convert to grayscale and resize to 960x540
-                grayscale_data = self.convert_image_to_grayscale_and_resize(image_data)
-
-                return grayscale_data
-
-        except Exception as e:
-            print(f"❌ DALL-E 2 fallback method failed: {str(e)}")
-            raise e
     
     async def generate_image(self, visual_prompt: str, scene_number: int) -> bytes:
-        """Generate image using DALL-E 2 at original size and convert to grayscale (main method)"""
-        return await self.generate_image_dalle2(visual_prompt, scene_number)
-    
-    async def generate_image_dalle3_fallback(self, visual_prompt: str, scene_number: int) -> bytes:
-        """Fallback: Generate image with DALL-E 3 URL method (legacy support)"""
-        import httpx
-        from PIL import Image
-        from io import BytesIO
-
-        try:
-            enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
-            
-            response = self.openai_client.images.generate(
-                model="dall-e-3",
-                prompt=enhanced_prompt,
-                size='1024x1024',  # Keep original size
-                quality="standard",
-                n=1,
-                response_format="url"
-            )
-
-            image_url = response.data[0].url
-            print(f"🔗 DALL-E 3 URL generated, attempting immediate download...")
-
-            # Immediately download with aggressive timeout settings
-            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-                download_response = await client.get(image_url)
-                download_response.raise_for_status()
-                image_data = download_response.content
-                print(f"✅ DALL-E 3 fallback download successful: {len(image_data)} bytes")
-
-                # Convert to grayscale and resize to 960x540
-                grayscale_data = self.convert_image_to_grayscale_and_resize(image_data)
-
-                return grayscale_data
-
-        except Exception as e:
-            print(f"❌ DALL-E 3 fallback method failed: {str(e)}")
-            raise e
+        """Generate image using Replicate SDXL (main method)"""
+        return await self.generate_image_replicate(visual_prompt, scene_number)
