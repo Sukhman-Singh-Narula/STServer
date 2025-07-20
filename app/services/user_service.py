@@ -1,8 +1,10 @@
 from datetime import datetime
 from typing import Dict, Any, Optional
+import base64
 from fastapi import HTTPException
 from app.models.user import ParentProfile, ChildProfile
 from app.utils.firebase_init import get_firestore_client, is_firebase_available
+from app.services.storage_service import StorageService
 from app.config import settings
 
 class UserService:
@@ -11,6 +13,7 @@ class UserService:
         self.system_prompts = {}  # In-memory cache
         # Don't initialize Firebase client here - do it lazily
         self._db = None
+        self._storage_service = None
     
     @property
     def db(self):
@@ -19,7 +22,14 @@ class UserService:
             self._db = get_firestore_client()
         return self._db
     
-    async def create_user_profile(self, user_id: str, parent: ParentProfile, child: ChildProfile, system_prompt: str = None) -> Dict[str, Any]:
+    @property
+    def storage_service(self):
+        """Lazy initialization of Storage service"""
+        if self._storage_service is None:
+            self._storage_service = StorageService()
+        return self._storage_service
+    
+    async def create_user_profile(self, user_id: str, parent: ParentProfile, child: ChildProfile, system_prompt: str = None, child_image_base64: str = None) -> Dict[str, Any]:
         """Create a new user profile in Firestore"""
         try:
             # Check if Firebase is available
@@ -29,6 +39,19 @@ class UserService:
             # Generate personalized system prompt based on child's info
             if not system_prompt:
                 system_prompt = self._generate_personalized_prompt(child)
+            
+            # Handle image upload if provided
+            image_url = None
+            if child_image_base64:
+                try:
+                    # Decode base64 image
+                    image_data = base64.b64decode(child_image_base64)
+                    # Upload to Firebase Storage
+                    image_url = await self.storage_service.upload_user_image(image_data, user_id)
+                    print(f"✅ Child profile image uploaded: {image_url}")
+                except Exception as e:
+                    print(f"⚠️ Failed to upload child profile image: {str(e)}")
+                    # Continue without image rather than failing the entire registration
             
             profile_data = {
                 'user_id': user_id,
@@ -40,7 +63,8 @@ class UserService:
                 'child': {
                     'name': child.name,
                     'age': child.age,
-                    'interests': child.interests
+                    'interests': child.interests,
+                    'image_url': image_url  # Will be None if no image was provided
                 },
                 'system_prompt': system_prompt,
                 'created_at': datetime.utcnow(),
@@ -82,7 +106,7 @@ class UserService:
             print(f"Error getting user profile: {str(e)}")
             return None
     
-    async def update_user_profile(self, user_id: str, parent: ParentProfile = None, child: ChildProfile = None, system_prompt: str = None) -> Dict[str, Any]:
+    async def update_user_profile(self, user_id: str, parent: ParentProfile = None, child: ChildProfile = None, system_prompt: str = None, child_image_base64: str = None) -> Dict[str, Any]:
         """Update user profile in Firestore"""
         try:
             if not is_firebase_available() or self.db is None:
@@ -109,10 +133,24 @@ class UserService:
                 }
             
             if child:
+                # Handle image upload if provided
+                image_url = existing_profile.get('child', {}).get('image_url')  # Keep existing image URL
+                if child_image_base64:
+                    try:
+                        # Decode base64 image
+                        image_data = base64.b64decode(child_image_base64)
+                        # Upload new image to Firebase Storage
+                        image_url = await self.storage_service.upload_user_image(image_data, user_id)
+                        print(f"✅ Child profile image updated: {image_url}")
+                    except Exception as e:
+                        print(f"⚠️ Failed to upload child profile image: {str(e)}")
+                        # Keep existing image if upload fails
+                
                 updates['child'] = {
                     'name': child.name,
                     'age': child.age,
-                    'interests': child.interests
+                    'interests': child.interests,
+                    'image_url': image_url  # Updated or existing image URL
                 }
                 # Regenerate system prompt if child info changed
                 if not system_prompt:
@@ -191,6 +229,11 @@ class UserService:
                 language_level = description
                 break
         
+        # Add image reference if available
+        image_reference = ""
+        if hasattr(child, 'image_url') and child.image_url:
+            image_reference = f"\n\nWhen {child.name} appears in stories, their appearance should be consistent with their profile image."
+        
         personalized_prompt = f"""You are a creative children's storyteller creating stories for {child.name}, who is {child.age} years old and loves {interests_str}.
 
 Create engaging, age-appropriate stories that are educational and fun. Use {language_level} that's perfect for a {child.age}-year-old.
@@ -199,6 +242,6 @@ Incorporate themes and elements related to {interests_str} when possible, making
 
 Structure your story into clear scenes that can be visualized. Each scene should be 2-3 sentences long and paint a vivid picture.
 
-Make the stories positive, encouraging, and help build {child.name}'s imagination and confidence."""
+Make the stories positive, encouraging, and help build {child.name}'s imagination and confidence.{image_reference}"""
 
         return personalized_prompt

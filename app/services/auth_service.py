@@ -34,7 +34,8 @@ class AuthService:
                 user_id=user_id,
                 parent=request.parent,
                 child=request.child,
-                system_prompt=request.system_prompt
+                system_prompt=request.system_prompt,
+                child_image_base64=request.child_image_base64
             )
             
             return AuthResponse(
@@ -85,7 +86,8 @@ class AuthService:
                 user_id=user_id,
                 parent=request.parent,
                 child=request.child,
-                system_prompt=request.system_prompt
+                system_prompt=request.system_prompt,
+                child_image_base64=request.child_image_base64
             )
             
             return AuthResponse(

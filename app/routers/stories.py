@@ -45,15 +45,29 @@ def add_cors_headers(response: Response):
 
 # ===== STORY GENERATION (Keep existing methods) =====
 
-async def process_scenes_parallel_optimized(scenes, story_id, media_service, storage_service):
+async def process_scenes_parallel_optimized(scenes, story_id, media_service, storage_service, user_profile=None):
     """Process all scenes in parallel with batch audio AND batch image generation"""
     print(f"\n🔥 Starting FULLY OPTIMIZED parallel processing for {len(scenes)} scenes...")
+    
+    # Extract child information from user profile
+    child_info = user_profile.get('child', {}) if user_profile else {}
+    child_name = child_info.get('name', 'the child')
+    child_image_url = child_info.get('image_url')
     
     # Step 1: Extract all scene texts for batch audio generation
     scene_texts = [{"text": scene.text, "scene_number": scene.scene_number} for scene in scenes]
     
-    # Step 2: Extract all visual prompts for batch image generation
-    visual_prompts = [{"visual_prompt": scene.visual_prompt, "scene_number": scene.scene_number} for scene in scenes]
+    # Step 2: Extract all visual prompts for batch image generation with child info
+    visual_prompts = []
+    for scene in scenes:
+        prompt_data = {
+            "visual_prompt": scene.visual_prompt,
+            "scene_number": scene.scene_number,
+            "includes_child": scene.includes_child,
+            "child_name": child_name,
+            "child_image_url": child_image_url
+        }
+        visual_prompts.append(prompt_data)
     
     # Step 3: Generate ALL audio and ALL images in parallel (major optimization!)
     print(f"🚀 Generating ALL audio and ALL images in parallel...")
@@ -201,6 +215,10 @@ async def generate_story_background(
     try:
         print(f"🔄 Background generation started for story: {story_id}")
         
+        # Get user profile for child information
+        user_service = UserService()
+        user_profile = await user_service.get_user_profile(user_id)
+        
         # Generate story scenes using OpenAI (fetches user prompt from Firebase)
         print("🤖 Generating story scenes with OpenAI...")
         scenes, title = await story_service.generate_story_scenes(prompt, user_id)
@@ -211,7 +229,7 @@ async def generate_story_background(
         
         # Process all scenes with FULLY optimized parallel processing
         processed_scenes_with_duration = await process_scenes_parallel_optimized(
-            scenes, story_id, media_service, storage_service
+            scenes, story_id, media_service, storage_service, user_profile
         )
         
         # Extract scenes and calculate timings
@@ -241,7 +259,8 @@ async def generate_story_background(
                 "image_url": scene.image_url,  # Grayscale image (backward compatibility)
                 "colored_image_url": scene.colored_image_url,  # Colored image
                 "start_time": scene.start_time,
-                "duration": calculate_audio_duration(scene.text)
+                "duration": calculate_audio_duration(scene.text),
+                "includes_child": scene.includes_child  # Whether this scene includes the child
             }
             scenes_data.append(scene_data)
         

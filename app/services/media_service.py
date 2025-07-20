@@ -96,8 +96,8 @@ class MediaService:
         try:
             print(f"🖼️ Starting Replicate SDXL batch image generation for {len(visual_prompts)} scenes...")
             
-            # Create semaphore to limit concurrent requests (avoid rate limiting)
-            semaphore = asyncio.Semaphore(2)  # Max 2 concurrent image requests
+            # Create semaphore to limit concurrent requests (avoid GPU memory issues)
+            semaphore = asyncio.Semaphore(1)  # Max 1 concurrent image request to prevent CUDA OOM
             
             async def generate_single_image_replicate(prompt_data):
                 """Generate image for a single scene using Replicate SDXL"""
@@ -115,19 +115,31 @@ class MediaService:
                             
                             # Replicate SDXL input configuration - generate at 1024x1024 for best quality
                             input_config = {
-                                "width": 1024,  # Generate at high quality
-                                "height": 1024,
+                                "width": 512,  # Reduced from 1024 for memory optimization
+                                "height": 512,
                                 "prompt": enhanced_prompt,
                                 "refine": "expert_ensemble_refiner",
                                 "apply_watermark": False,
-                                "num_inference_steps": 25
+                                "num_inference_steps": 15  # Reduced for memory optimization
                             }
                             
-                            # Generate image using Replicate SDXL
-                            output = replicate.run(
-                                "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-                                input=input_config
-                            )
+                            # Generate image using Replicate SDXL with retry for CUDA errors
+                            max_retries = 3
+                            for attempt in range(max_retries):
+                                try:
+                                    output = replicate.run(
+                                        "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
+                                        input=input_config
+                                    )
+                                    break  # Success, exit retry loop
+                                except Exception as e:
+                                    if "CUDA out of memory" in str(e) and attempt < max_retries - 1:
+                                        print(f"🔄 CUDA memory error on attempt {attempt + 1}, retrying in 10 seconds...")
+                                        import time
+                                        time.sleep(10)  # Wait for GPU memory to clear
+                                        continue
+                                    else:
+                                        raise e  # Re-raise if not CUDA error or max retries reached
                             
                             # Get the first output and read as bytes
                             for item in output:
@@ -136,7 +148,7 @@ class MediaService:
                             else:
                                 raise Exception("No output generated from Replicate")
                             
-                            # Resize from 1024x1024 to 304x304 using PIL
+                            # Resize from 512x512 to 304x304 using PIL
                             image = Image.open(io.BytesIO(image_data))
                             resized_image = image.resize((304, 304), Image.LANCZOS)
                             
@@ -327,12 +339,12 @@ class MediaService:
             
             # Replicate SDXL input configuration - generate at 1024x1024 for best quality
             input_config = {
-                "width": 1024,  # Generate at high quality
-                "height": 1024,
+                "width": 512,  # Reduced from 1024 for memory optimization
+                "height": 512,
                 "prompt": enhanced_prompt,
                 "refine": "expert_ensemble_refiner",
                 "apply_watermark": False,
-                "num_inference_steps": 25
+                "num_inference_steps": 15  # Reduced for memory optimization
             }
             
             # Run Replicate generation in thread pool

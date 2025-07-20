@@ -12,6 +12,51 @@ class StoryService:
         self.openai_client = openai_client
         self.user_service = user_service
     
+    def _should_include_child_in_story(self, user_prompt: str, child_name: str) -> bool:
+        """Determine if the child should be included as a character in the story"""
+        # Keywords that suggest the child should be included
+        include_keywords = [
+            child_name.lower(),
+            "me", "my", "myself", "i want", "i am",
+            "protagonist", "main character", "hero", "adventure",
+            "journey", "quest", "explore", "discover",
+            "learn", "experience", "meet", "find"
+        ]
+        
+        # Keywords that suggest the child should NOT be included
+        exclude_keywords = [
+            "about", "story about", "tell me about",
+            "what is", "how does", "why do", "where is",
+            "fairy tale", "classic story", "bedtime story",
+            "animal story", "animals only", "no people"
+        ]
+        
+        prompt_lower = user_prompt.lower()
+        
+        # Check for exclude keywords first
+        for keyword in exclude_keywords:
+            if keyword in prompt_lower:
+                return False
+        
+        # Check for include keywords
+        for keyword in include_keywords:
+            if keyword in prompt_lower:
+                return True
+        
+        # Default: include child if prompt suggests adventure/interactive story
+        interactive_indicators = [
+            "adventure", "journey", "quest", "explore", "discover",
+            "interactive", "choose", "decide", "help", "save",
+            "rescue", "find", "meet", "make friends"
+        ]
+        
+        for indicator in interactive_indicators:
+            if indicator in prompt_lower:
+                return True
+        
+        # Default to not including child for general stories
+        return False
+    
     async def generate_story_scenes(self, user_prompt: str, user_id: str) -> Tuple[List[StoryScene], str]:
         """Generate story scenes using OpenAI GPT"""
         try:
@@ -25,9 +70,18 @@ class StoryService:
             child_name = child_info.get('name', 'the child')
             child_age = child_info.get('age', 6)
             child_interests = child_info.get('interests', [])
+            child_image_url = child_info.get('image_url')
             
             # Get personalized system prompt from user profile
             system_prompt = user_profile.get('system_prompt', settings.default_system_prompt)
+            
+            # Determine if child should be included in the story
+            should_include_child = self._should_include_child_in_story(user_prompt, child_name)
+            
+            # Prepare child appearance description for visual prompts
+            child_appearance_reference = ""
+            if should_include_child and child_image_url:
+                child_appearance_reference = f"\n\nIMPORTANT: When {child_name} appears in scenes, use this image as reference for their appearance: {child_image_url}\nDescribe {child_name} consistently based on the features you can see in this reference image."
             
             # Create comprehensive story generation prompt
             story_generation_prompt = f"""
@@ -35,11 +89,15 @@ class StoryService:
             
             Create a personalized story for {child_name} (age {child_age}) who loves {', '.join(child_interests) if child_interests else 'adventure and learning'}.
             
+            {"Include " + child_name + " as a character in the story where it makes sense naturally." if should_include_child else ""}
+            
             Structure your response as exactly {settings.max_scenes} scenes. Each scene should be engaging and age-appropriate.
             
             For each scene, provide:
             1. The scene text
             2. A detailed visual description for DALL-E image generation anime style illustration
+            
+            {child_appearance_reference}
             
             Format your response as valid JSON:
             {{
@@ -48,12 +106,14 @@ class StoryService:
                     {{
                         "scene_number": 1,
                         "text": "Scene text here",
-                        "visual_prompt": "Detailed visual description for DALL-E image generation. Style: Children's book illustration, colorful and friendly..."
+                        "visual_prompt": "Detailed visual description for DALL-E image generation. Style: Children's book illustration, colorful and friendly...",
+                        "includes_child": true/false
                     }},
                     {{
                         "scene_number": 2,
                         "text": "Scene text here...",
-                        "visual_prompt": "Detailed visual description for DALL-E image generation. Style: Children's book illustration, colorful and friendly..."
+                        "visual_prompt": "Detailed visual description for DALL-E image generation. Style: Children's book illustration, colorful and friendly...",
+                        "includes_child": true/false
                     }}
                 ]
             }}
@@ -94,7 +154,8 @@ class StoryService:
                 scene = StoryScene(
                     scene_number=scene_data["scene_number"],
                     text=scene_data["text"],
-                    visual_prompt=scene_data["visual_prompt"]
+                    visual_prompt=scene_data["visual_prompt"],
+                    includes_child=scene_data.get("includes_child", False)
                 )
                 scenes.append(scene)
             

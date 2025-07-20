@@ -247,6 +247,67 @@ class StorageService:
             print(f"❌ {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
 
+    async def upload_user_image(self, image_data: bytes, user_id: str) -> str:
+        """Upload user profile image to Firebase Storage"""
+        try:
+            if not self.bucket:
+                raise HTTPException(status_code=503, detail="Firebase Storage not available")
+            
+            print(f"📤 Uploading user profile image: {len(image_data)} bytes")
+            
+            # Validate image data
+            if len(image_data) < 1000:  # Less than 1KB is probably an error
+                raise Exception(f"Image data too small: {len(image_data)} bytes")
+            
+            # Detect image format and set filename accordingly
+            content_type = "image/jpeg"
+            file_extension = "jpg"
+            
+            if image_data.startswith(b'\x89PNG'):
+                content_type = "image/png"
+                file_extension = "png"
+                print(f"🖼️ Detected PNG format (user profile)")
+            elif image_data.startswith(b'\xff\xd8'):
+                content_type = "image/jpeg"
+                file_extension = "jpg"
+                print(f"🖼️ Detected JPEG format (user profile)")
+            else:
+                print(f"⚠️ Unknown image format, assuming JPEG (user profile)")
+            
+            # Use timestamp to avoid conflicts
+            from datetime import datetime
+            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            filename = f"users/{user_id}/profile_image_{timestamp}.{file_extension}"
+            
+            # Create blob and upload in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            
+            def upload_image_sync():
+                blob = self.bucket.blob(filename)
+                
+                # Upload image data
+                blob.upload_from_string(image_data, content_type=content_type)
+                blob.make_public()
+                
+                # Verify upload
+                if blob.exists():
+                    return blob.public_url
+                else:
+                    raise Exception("Upload completed but file verification failed")
+            
+            # Run upload in thread pool
+            public_url = await loop.run_in_executor(None, upload_image_sync)
+            
+            print(f"✅ User profile image uploaded successfully: {public_url}")
+            return public_url
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            error_msg = f"User profile image upload failed: {str(e)}"
+            print(f"❌ {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
+
     # ===== ENHANCED STORY METADATA MANAGEMENT WITH STORY ID ARRAYS =====
     
     async def save_story_metadata(self, story_id: str, user_id: str, title: str, prompt: str, manifest: Dict):

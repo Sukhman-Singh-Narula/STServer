@@ -22,6 +22,7 @@ class StoryScene:
     image_url: str = ""
     colored_image_url: str = ""
     start_time: int = 0
+    includes_child: bool = False  # Whether this scene includes the child as a character
 
 @dataclass
 class StoryManifest:
