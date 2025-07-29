@@ -11,19 +11,19 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     openai_api_key: str = ""
     replicate_api_token: str = ""
+    deepimage_api_key: str = ""  # DeepImage API key for face swapping
     
     
     # Story settings
     max_scenes: int = 5
     audio_format: str = "mp3"
-    image_size: str = "304x304"  # Final size after resizing from 1024x1024
-    replicate_generation_size: str = "1024x1024"  # Generate at high quality, then resize
+    image_size: str = "768x768"  # Final size matching Replicate SDXL output
+    replicate_generation_size: str = "768x768"  # Generate at optimal SDXL size
     
     # Performance optimization settings
-    max_concurrent_scenes: int = 3  # Process 3 scenes in parallel
-    use_dalle_2_for_speed: bool = True  # Always use DALL-E 2 for speed
+    max_concurrent_scenes: int = 2  # Process 2 scenes in parallel for SDXL
     enable_batch_audio: bool = True  # Enable batch OpenAI TTS generation
-    enable_batch_images: bool = True  # Enable batch DALL-E 2 image generation
+    enable_batch_images: bool = True  # Enable batch Replicate SDXL image generation
     enable_parallel_uploads: bool = True  # Enable parallel Firebase uploads
     
     # Audio optimization settings
@@ -31,9 +31,8 @@ class Settings(BaseSettings):
     batch_audio_timeout: int = 120  # Seconds for entire batch (OpenAI TTS only)
     firebase_web_api_key: str = ""  # NEW: Required for authentication
     # Image optimization settings
-    image_generation_timeout: int = 45  # Seconds per image (DALL-E 2 is faster than DALL-E 3)
-    batch_image_timeout: int = 180  # Seconds for entire image batch (DALL-E 2)
-    dalle_2_size: str = "1024x1024"  # DALL-E 2 max size, will be resized to image_size
+    image_generation_timeout: int = 60  # Seconds per image (SDXL takes longer than DALL-E)
+    batch_image_timeout: int = 300  # Seconds for entire image batch (Replicate SDXL)
     
     # Upload optimization settings
     upload_timeout: int = 30  # Seconds per upload

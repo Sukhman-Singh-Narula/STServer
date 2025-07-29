@@ -75,7 +75,7 @@ async def process_scenes_parallel_optimized(scenes, story_id, media_service, sto
     # Run both batch operations simultaneously
     batch_tasks = [
         media_service.generate_audio_batch(scene_texts),
-        media_service.generate_image_batch(visual_prompts)
+        media_service.generate_image_batch(visual_prompts, child_image_url)
     ]
     
     audio_batch, image_batch = await asyncio.gather(*batch_tasks)

@@ -18,11 +18,11 @@ async def health_check():
         },
         "optimizations": {
             "parallel_processing": settings.max_concurrent_scenes,
-            "dalle_2_enabled": settings.use_dalle_2_for_speed,
+            "replicate_sdxl_enabled": True,
             "batch_audio_enabled": settings.enable_batch_audio,
             "batch_images_enabled": settings.enable_batch_images,
             "parallel_uploads_enabled": settings.enable_parallel_uploads
         },
-        "ai_stack": "OpenAI TTS + DALL-E 2",
+        "ai_stack": "OpenAI TTS + Replicate SDXL",
         "debug_mode": settings.debug
     }

@@ -18,7 +18,7 @@ if settings.openai_api_key and settings.openai_api_key != "test":
         client = OpenAI(api_key=settings.openai_api_key)
         print("✅ OpenAI client initialized successfully")
         print("🎵 Using OpenAI TTS for audio generation")
-        print("🖼️ Using DALL-E 2 for faster image generation")
+        print("🖼️ Using Replicate SDXL for high-quality image generation")
     except Exception as e:
         print(f"⚠️ OpenAI initialization failed: {str(e)}")
 else:
@@ -28,7 +28,7 @@ else:
 app = FastAPI(
     title="ESP32 Storytelling Server - Optimized OpenAI Edition", 
     version="3.0.0",
-    description="Optimized FastAPI server for ESP32 storytelling device - OpenAI TTS + DALL-E 2 with parallel processing"
+    description="Optimized FastAPI server for ESP32 storytelling device - OpenAI TTS + Replicate SDXL with parallel processing"
 )
 
 # Enhanced CORS middleware for React Native compatibility
@@ -138,10 +138,10 @@ async def startup_event():
     print("🤖 AI Services:")
     print(f"  - OpenAI: {'✅ Configured' if settings.openai_api_key and settings.openai_api_key != 'test' else '❌ Not configured'}")
     print(f"  - Firebase: {'✅ Connected' if initialize_firebase() else '❌ Not connected'}")
-    print("📖 Story Generation: OpenAI TTS + DALL-E 2 with Full Parallel Processing")
+    print("📖 Story Generation: OpenAI TTS + Replicate SDXL with Full Parallel Processing")
     print("⚡ Optimizations:")
     print(f"  - Parallel Scene Processing: {settings.max_concurrent_scenes} concurrent scenes")
-    print(f"  - DALL-E 2 for Speed: {'✅ Enabled' if settings.use_dalle_2_for_speed else '❌ Disabled'}")
+    print(f"  - Replicate SDXL for High Quality: ✅ Enabled")
     print(f"  - Batch Audio Generation: {'✅ Enabled' if settings.enable_batch_audio else '❌ Disabled'}")
     print(f"  - Batch Image Generation: {'✅ Enabled' if settings.enable_batch_images else '❌ Disabled'}")
     print(f"  - Parallel Uploads: {'✅ Enabled' if settings.enable_parallel_uploads else '❌ Disabled'}")
@@ -190,7 +190,8 @@ if __name__ == "__main__":
     # Check for required environment variables only if not in test mode
     if not settings.debug:
         required_vars = [
-            "OPENAI_API_KEY",  # Required for GPT-4, DALL-E 2, and TTS
+            "OPENAI_API_KEY",  # Required for GPT-4, TTS
+            "REPLICATE_API_TOKEN",  # Required for SDXL image generation
             "FIREBASE_CREDENTIALS_PATH", 
             "FIREBASE_STORAGE_BUCKET"
         ]
@@ -201,7 +202,7 @@ if __name__ == "__main__":
             print(f"❌ Missing required environment variables: {', '.join(missing_vars)}")
             print("Please set these environment variables before running the server.")
             print("💡 Tip: Set DEBUG=true for development/testing mode")
-            print("🤖 Note: Using OpenAI TTS + DALL-E 2 for optimal performance")
+            print("🤖 Note: Using OpenAI TTS + Replicate SDXL for optimal performance")
             exit(1)
     else:
         print("🧪 Running in debug mode - external services may not work")
@@ -209,7 +210,7 @@ if __name__ == "__main__":
     print("🔧 Starting optimized server...")
     print("⚡ Performance features enabled:")
     print(f"   - Parallel processing: {settings.max_concurrent_scenes} scenes")
-    print(f"   - DALL-E 2 for speed: {settings.use_dalle_2_for_speed}")
+    print(f"   - Replicate SDXL: True")
     print(f"   - Batch audio: {settings.enable_batch_audio}")
     print(f"   - Batch images: {settings.enable_batch_images}")
     print(f"   - Parallel uploads: {settings.enable_parallel_uploads}")

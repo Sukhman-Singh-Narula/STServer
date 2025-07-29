@@ -90,20 +90,10 @@ class StorageService:
             if len(image_data) < 1000:  # Less than 1KB is probably an error
                 raise Exception(f"Image data too small: {len(image_data)} bytes")
             
-            # Detect image format and set filename accordingly
+            # Always use JPEG format for all images
             content_type = "image/jpeg"
             file_extension = "jpg"
-            
-            if image_data.startswith(b'\x89PNG'):
-                content_type = "image/png"
-                file_extension = "png"
-                print(f"🖼️ Detected PNG format (grayscale)")
-            elif image_data.startswith(b'\xff\xd8'):
-                content_type = "image/jpeg"
-                file_extension = "jpg"
-                print(f"🖼️ Detected JPEG format (grayscale)")
-            else:
-                print(f"⚠️ Unknown image format, assuming JPEG (grayscale)")
+            print(f"🖼️ Storing as JPEG format (grayscale)")
             
             # Use _grayscale suffix to indicate the image has been processed
             filename = f"stories/{story_id}/images/scene_{scene_number}_grayscale.{file_extension}"
@@ -149,20 +139,10 @@ class StorageService:
             if len(image_data) < 1000:  # Less than 1KB is probably an error
                 raise Exception(f"Image data too small: {len(image_data)} bytes")
             
-            # Detect image format and set filename accordingly
+            # Always use JPEG format for all images
             content_type = "image/jpeg"
             file_extension = "jpg"
-            
-            if image_data.startswith(b'\x89PNG'):
-                content_type = "image/png"
-                file_extension = "png"
-                print(f"🖼️ Detected PNG format (colored)")
-            elif image_data.startswith(b'\xff\xd8'):
-                content_type = "image/jpeg"
-                file_extension = "jpg"
-                print(f"🖼️ Detected JPEG format (colored)")
-            else:
-                print(f"⚠️ Unknown image format, assuming JPEG (colored)")
+            print(f"🖼️ Storing as JPEG format (colored)")
             
             # Use _colored suffix to indicate the original colored image
             filename = f"stories/{story_id}/images/scene_{scene_number}_colored.{file_extension}"
@@ -259,20 +239,10 @@ class StorageService:
             if len(image_data) < 1000:  # Less than 1KB is probably an error
                 raise Exception(f"Image data too small: {len(image_data)} bytes")
             
-            # Detect image format and set filename accordingly
+            # Always use JPEG format for all images
             content_type = "image/jpeg"
             file_extension = "jpg"
-            
-            if image_data.startswith(b'\x89PNG'):
-                content_type = "image/png"
-                file_extension = "png"
-                print(f"🖼️ Detected PNG format (user profile)")
-            elif image_data.startswith(b'\xff\xd8'):
-                content_type = "image/jpeg"
-                file_extension = "jpg"
-                print(f"🖼️ Detected JPEG format (user profile)")
-            else:
-                print(f"⚠️ Unknown image format, assuming JPEG (user profile)")
+            print(f"🖼️ Storing as JPEG format (user profile)")
             
             # Use timestamp to avoid conflicts
             from datetime import datetime
@@ -307,6 +277,80 @@ class StorageService:
             error_msg = f"User profile image upload failed: {str(e)}"
             print(f"❌ {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
+
+    async def upload_image(self, image_data: bytes, filename: str, content_type: str = "image/jpeg") -> str:
+        """Generic image upload method for temporary files"""
+        try:
+            if not self.bucket:
+                raise HTTPException(status_code=503, detail="Firebase Storage not available")
+            
+            print(f"📤 Uploading image: {filename} ({len(image_data)} bytes)")
+            
+            # Validate image data
+            if len(image_data) < 1000:  # Less than 1KB is probably an error
+                raise Exception(f"Image data too small: {len(image_data)} bytes")
+            
+            # Create blob and upload in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            
+            def upload_image_sync():
+                blob = self.bucket.blob(filename)
+                
+                # Upload image data
+                blob.upload_from_string(image_data, content_type=content_type)
+                blob.make_public()
+                
+                # Verify upload
+                if blob.exists():
+                    return blob.public_url
+                else:
+                    raise Exception("Upload completed but file verification failed")
+            
+            # Run upload in thread pool
+            public_url = await loop.run_in_executor(None, upload_image_sync)
+            
+            print(f"✅ Image uploaded successfully: {public_url}")
+            return public_url
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            error_msg = f"Image upload failed: {str(e)}"
+            print(f"❌ {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
+
+    async def delete_file(self, filename: str) -> bool:
+        """Delete a file from Firebase Storage"""
+        try:
+            if not self.bucket:
+                print("⚠️ Firebase Storage not available - cannot delete file")
+                return False
+            
+            print(f"🗑️ Deleting file: {filename}")
+            
+            # Run deletion in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            
+            def delete_file_sync():
+                blob = self.bucket.blob(filename)
+                if blob.exists():
+                    blob.delete()
+                    return True
+                else:
+                    print(f"⚠️ File {filename} does not exist")
+                    return False
+            
+            # Run deletion in thread pool
+            result = await loop.run_in_executor(None, delete_file_sync)
+            
+            if result:
+                print(f"✅ File deleted successfully: {filename}")
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ File deletion failed for {filename}: {str(e)}")
+            return False
 
     # ===== ENHANCED STORY METADATA MANAGEMENT WITH STORY ID ARRAYS =====
     
