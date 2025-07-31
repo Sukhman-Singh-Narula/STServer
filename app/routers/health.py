@@ -1,5 +1,8 @@
 from datetime import datetime
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
+from fastapi.responses import StreamingResponse
+import requests
+import io
 from app.config import settings
 from app.utils.firebase_init import is_firebase_available
 
@@ -26,3 +29,49 @@ async def health_check():
         "ai_stack": "OpenAI TTS + Replicate SDXL",
         "debug_mode": settings.debug
     }
+
+@router.get("/audiotrial")
+async def audio_trial():
+    """Fetch and return WAV audio file from Firebase Storage"""
+    try:
+        # Firebase Storage URL for the test audio file
+        audio_url = "https://firebasestorage.googleapis.com/v0/b/storyteller-7ece7.firebasestorage.app/o/stories%2Fstory_6f03d161%2Faudio%2Fscene_1.wav?alt=media&token=23948668-d43d-4baa-928b-89cff4178665"
+        
+        print(f"🎵 Fetching audio from: {audio_url}")
+        
+        # Fetch the audio file from Firebase Storage
+        response = requests.get(audio_url, timeout=30)
+        
+        if response.status_code == 200:
+            # Get the audio data
+            audio_data = response.content
+            
+            print(f"✅ Audio fetched successfully: {len(audio_data)} bytes")
+            
+            # Create an in-memory file-like object
+            audio_stream = io.BytesIO(audio_data)
+            
+            # Return the audio as a streaming response with proper headers
+            return StreamingResponse(
+                io.BytesIO(audio_data),
+                media_type="audio/wav",
+                headers={
+                    "Content-Disposition": "attachment; filename=scene_1.wav",
+                    "Content-Length": str(len(audio_data))
+                }
+            )
+        else:
+            print(f"❌ Failed to fetch audio: HTTP {response.status_code}")
+            return {
+                "error": "Failed to fetch audio file",
+                "status_code": response.status_code,
+                "url": audio_url
+            }
+            
+    except Exception as e:
+        print(f"❌ Audio trial failed: {str(e)}")
+        return {
+            "error": "Audio trial failed",
+            "message": str(e),
+            "url": audio_url
+        }
