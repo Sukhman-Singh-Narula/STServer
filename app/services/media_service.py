@@ -221,7 +221,7 @@ class MediaService:
                             model="gpt-4o-mini-tts",  # Faster model
                             voice="coral",   # Child-friendly voice
                             input=text,
-                            response_format="mp3"
+                            response_format="wav"  # Changed from mp3 to wav
                         )
                         
                         # Convert response to bytes
@@ -411,7 +411,7 @@ class MediaService:
                             model="tts-1",  # Faster model
                             voice="nova",   # Child-friendly voice
                             input=text,
-                            response_format="mp3"
+                            response_format="wav"  # Changed from mp3 to wav
                         )
                         
                         # Convert response to bytes
@@ -464,7 +464,7 @@ class MediaService:
                 model="tts-1",  # Faster model
                 voice="nova",   # Child-friendly voice
                 input=text,
-                response_format="mp3"
+                response_format="wav"  # Changed from mp3 to wav
             )
             
             # Convert response to bytes

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     
     # Story settings
     max_scenes: int = 5
-    audio_format: str = "mp3"
+    audio_format: str = "wav"  # Changed from mp3 to wav
     image_size: str = "768x768"  # Final size matching Replicate SDXL output
     replicate_generation_size: str = "768x768"  # Generate at optimal SDXL size
     
