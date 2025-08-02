@@ -56,7 +56,6 @@ async def audio_trial():
                 io.BytesIO(audio_data),
                 media_type="audio/wav",
                 headers={
-                    "Content-Disposition": "attachment; filename=scene_1.wav",
                     "Content-Length": str(len(audio_data))
                 }
             )
