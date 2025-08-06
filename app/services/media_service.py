@@ -293,41 +293,100 @@ class MediaService:
                             # Enhance the prompt for children's book style
                             enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
                             
-                            # Replicate SDXL input configuration - generate at 1024x1024 for best quality
+                            # Primary model: SDXL
+                            primary_model = "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc"
+                            # Fallback model: Stable Diffusion 2.1 (faster, more reliable)
+                            fallback_model = "stability-ai/stable-diffusion:db21e45d3f7023abc2a46ee38a23973f6dce16bb082a930b0c49861f96d1e5bf"
+                            
+                            # Replicate SDXL input configuration - generate at 512x512 for memory optimization
                             input_config = {
-                                "width": 512,  # Reduced from 1024 for memory optimization
+                                "width": 512,
                                 "height": 512,
                                 "prompt": enhanced_prompt,
                                 "refine": "expert_ensemble_refiner",
                                 "apply_watermark": False,
-                                "num_inference_steps": 15  # Reduced for memory optimization
+                                "num_inference_steps": 15
                             }
                             
-                            # Generate image using Replicate SDXL with retry for CUDA errors
-                            max_retries = 3
-                            for attempt in range(max_retries):
-                                try:
-                                    # Ensure token is set right before the call
-                                    replicate.api_token = settings.replicate_api_token
-                                    
-                                    output = replicate.run(
-                                        "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-                                        input=input_config
-                                    )
-                                    break  # Success, exit retry loop
-                                except Exception as e:
-                                    if "CUDA out of memory" in str(e) and attempt < max_retries - 1:
-                                        print(f"🔄 CUDA memory error on attempt {attempt + 1}, retrying in 10 seconds...")
-                                        import time
-                                        time.sleep(10)  # Wait for GPU memory to clear
-                                        continue
-                                    else:
-                                        raise e  # Re-raise if not CUDA error or max retries reached
+                            # Fallback config for SD 2.1 (different parameter names)
+                            fallback_config = {
+                                "width": 512,
+                                "height": 512,
+                                "prompt": enhanced_prompt,
+                                "num_inference_steps": 20,
+                                "guidance_scale": 7.5
+                            }
+                            
+                            # Try primary model first, then fallback
+                            models_to_try = [
+                                (primary_model, input_config, "SDXL"),
+                                (fallback_model, fallback_config, "SD2.1")
+                            ]
+                            
+                            output = None
+                            model_used = None
+                            
+                            for model_id, config, model_name in models_to_try:
+                                # Generate image using Replicate with retry for errors
+                                max_retries = 2
+                                for attempt in range(max_retries):
+                                    try:
+                                        # Ensure token is set right before the call
+                                        replicate.api_token = settings.replicate_api_token
+                                        
+                                        print(f"🔄 Calling Replicate {model_name} for scene {scene_number} (attempt {attempt + 1})...")
+                                        output = replicate.run(model_id, input=config)
+                                        
+                                        # Validate output is not None and has proper format
+                                        if output is None:
+                                            raise Exception("Replicate returned None output")
+                                        
+                                        # Convert output to list if it's not already
+                                        if not isinstance(output, (list, tuple)):
+                                            if hasattr(output, '__iter__') and not isinstance(output, str):
+                                                output = list(output)
+                                            else:
+                                                raise Exception(f"Unexpected output format: {type(output)}")
+                                        
+                                        print(f"✅ Replicate {model_name} response for scene {scene_number}: {len(output)} items")
+                                        model_used = model_name
+                                        break  # Success, exit retry loop
+                                        
+                                    except Exception as e:
+                                        error_msg = str(e)
+                                        print(f"❌ Replicate {model_name} error attempt {attempt + 1}: {error_msg}")
+                                        
+                                        # Handle specific error types
+                                        if "Expecting value: line 1 column 1 (char 0)" in error_msg:
+                                            print(f"🔍 JSON parsing error - likely empty response from Replicate API")
+                                            if attempt < max_retries - 1:
+                                                print(f"🔄 Retrying in 3 seconds...")
+                                                import time
+                                                time.sleep(3)
+                                                continue
+                                        elif "CUDA out of memory" in error_msg and attempt < max_retries - 1:
+                                            print(f"🔄 CUDA memory error, retrying in 5 seconds...")
+                                            import time
+                                            time.sleep(5)
+                                            continue
+                                        
+                                        # If it's the last attempt for this model, try next model
+                                        if attempt == max_retries - 1:
+                                            print(f"❌ All retries failed for {model_name}, trying next model...")
+                                            break
+                                
+                                # If we got output, break from model loop
+                                if output and len(output) > 0:
+                                    break
+                            
+                            # Check if we got any output from any model
+                            if not output or len(output) == 0:
+                                raise Exception("All Replicate models failed to generate output")
                             
                             # Get the first output URL and download it
                             if output and len(output) > 0:
                                 image_url = output[0]  # First image URL
-                                print(f"📥 Downloading image from: {image_url}")
+                                print(f"📥 Downloading {model_used} image from: {image_url}")
                                 
                                 # Download the image
                                 response = requests.get(image_url, timeout=30)
@@ -336,7 +395,7 @@ class MediaService:
                                 else:
                                     raise Exception(f"Failed to download image: HTTP {response.status_code}")
                             else:
-                                raise Exception("No output generated from Replicate")
+                                raise Exception("No output generated from any Replicate model")
                             
                             # Resize from 512x512 to 304x304 using PIL
                             image = Image.open(io.BytesIO(image_data))
@@ -364,7 +423,7 @@ class MediaService:
                         elif child_image_url:
                             print(f"⚠️ Face swap temporarily disabled for scene {scene_number}")
                         
-                        print(f"✅ Replicate SDXL color image generated for scene {scene_number}: {len(image_data)} bytes")
+                        print(f"✅ Replicate image generated for scene {scene_number}: {len(image_data)} bytes")
                         return image_data
                         
                     except Exception as e:
