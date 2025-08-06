@@ -35,7 +35,7 @@ async def audio_trial():
     """Fetch and return WAV audio file from Firebase Storage"""
     try:
         # Firebase Storage URL for the test audio file
-        audio_url = "https://firebasestorage.googleapis.com/v0/b/storyteller-7ece7.firebasestorage.app/o/stories%2Fstory_6f03d161%2Faudio%2Fscene_1.wav?alt=media&token=23948668-d43d-4baa-928b-89cff4178665"
+        audio_url = "https://firebasestorage.googleapis.com/v0/b/storyteller-7ece7.firebasestorage.app/o/stories%2Fstory_f501556e%2Faudio%2Fscene_1.mp3?alt=media&token=4720a3e6-11d3-4cc3-9ded-97a83acd46ad"
         
         print(f"🎵 Fetching audio from: {audio_url}")
         
@@ -73,4 +73,23 @@ async def audio_trial():
             "error": "Audio trial failed",
             "message": str(e),
             "url": audio_url
+        }
+
+@router.post("/test-voice")
+async def test_voice_selection(request_data: dict):
+    """Test endpoint to verify voice selection logic"""
+    try:
+        isfemale = request_data.get('isfemale', True)  # Default to True
+        voice = "sage" if isfemale else "onyx"  # Updated to use valid OpenAI voice
+        
+        return {
+            "isfemale": isfemale,
+            "voice_selected": voice,
+            "voice_type": "female" if isfemale else "male",
+            "message": f"Would use {voice} voice for {'female' if isfemale else 'male'} narration"
+        }
+    except Exception as e:
+        return {
+            "error": "Voice selection test failed",
+            "message": str(e)
         }

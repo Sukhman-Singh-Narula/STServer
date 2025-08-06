@@ -192,20 +192,23 @@ class MediaService:
             print("🔄 Returning original image due to face swap failure")
             return target_image_bytes
     
-    async def generate_audio_batch(self, scene_texts: List[Dict]) -> List[bytes]:
+    async def generate_audio_batch(self, scene_texts: List[Dict], isfemale: bool = True) -> List[bytes]:
         """Generate audio for multiple scenes in parallel using OpenAI TTS"""
         try:
             print(f"🎵 Starting OpenAI TTS batch audio generation for {len(scene_texts)} scenes...")
-            return await self.generate_audio_batch_openai(scene_texts)
+            print(f"🎤 Using {'female' if isfemale else 'male'} voice")
+            return await self.generate_audio_batch_openai(scene_texts, isfemale=isfemale)
             
         except Exception as e:
             print(f"❌ Batch audio generation error: {str(e)}")
             raise e
     
-    async def generate_audio_batch_openai(self, scene_texts: List[Dict]) -> List[bytes]:
+    async def generate_audio_batch_openai(self, scene_texts: List[Dict], isfemale: bool = True) -> List[bytes]:
         """Batch audio generation using OpenAI TTS (full parallel processing)"""
         try:
+            voice = "sage" if isfemale else "onyx"  # Female = sage, Male = onyx
             print(f"🎵 Using OpenAI TTS batch processing for {len(scene_texts)} scenes")
+            print(f"🎤 Voice selected: {voice} ({'female' if isfemale else 'male'})")
             
             async def generate_single_audio_openai(scene_data):
                 """Generate audio for a single scene using OpenAI TTS"""
@@ -218,8 +221,8 @@ class MediaService:
                     
                     def create_tts():
                         response = self.openai_client.audio.speech.create(
-                            model="gpt-4o-mini-tts",  # Faster model
-                            voice="coral",   # Child-friendly voice
+                            model="tts-1",  # Standard model
+                            voice=voice,   # Dynamic voice based on isfemale parameter
                             input=text,
                             response_format="wav"  # Changed from mp3 to wav
                         )
@@ -269,7 +272,7 @@ class MediaService:
             raise e
     
     async def generate_image_batch(self, visual_prompts: List[Dict], child_image_url: str = None) -> List[bytes]:
-        """Generate images for multiple scenes in parallel using Replicate SDXL with face swapping"""
+        """Generate images for multiple scenes in parallel using Replicate SDXL (face swapping temporarily disabled)"""
         try:
             print(f"🖼️ Starting Replicate SDXL batch image generation for {len(visual_prompts)} scenes...")
             
@@ -353,10 +356,13 @@ class MediaService:
                         image_data = await loop.run_in_executor(None, create_image)
                         
                         # Apply face swapping if child image URL is provided
-                        if child_image_url:
+                        # TEMPORARILY DISABLED - keeping code for future use
+                        if child_image_url and False:  # Disabled face swap
                             print(f"🔄 Applying face swap for scene {scene_number}...")
                             image_data = await self.swap_face_deepimage(image_data, child_image_url)
                             print(f"✅ Face swap completed for scene {scene_number}")
+                        elif child_image_url:
+                            print(f"⚠️ Face swap temporarily disabled for scene {scene_number}")
                         
                         print(f"✅ Replicate SDXL color image generated for scene {scene_number}: {len(image_data)} bytes")
                         return image_data
@@ -393,76 +399,21 @@ class MediaService:
         except Exception as e:
             print(f"❌ Replicate SDXL batch processing failed: {str(e)}")
             raise e
-        """Batch audio generation using OpenAI TTS (parallel processing)"""
-        try:
-            print(f"🎵 Using OpenAI TTS batch processing for {len(scene_texts)} scenes")
-            
-            async def generate_single_audio_openai(scene_data):
-                """Generate audio for a single scene using OpenAI TTS"""
-                text = scene_data['text']
-                scene_number = scene_data['scene_number']
-                
-                try:
-                    # Run OpenAI TTS generation in thread pool
-                    loop = asyncio.get_event_loop()
-                    
-                    def create_tts():
-                        response = self.openai_client.audio.speech.create(
-                            model="tts-1",  # Faster model
-                            voice="nova",   # Child-friendly voice
-                            input=text,
-                            response_format="wav"  # Changed from mp3 to wav
-                        )
-                        
-                        # Convert response to bytes
-                        audio_bytes = b""
-                        for chunk in response.iter_bytes():
-                            audio_bytes += chunk
-                        return audio_bytes
-                    
-                    audio_data = await loop.run_in_executor(None, create_tts)
-                    
-                    print(f"✅ OpenAI audio generated for scene {scene_number}: {len(audio_data)} bytes")
-                    return audio_data
-                    
-                except Exception as e:
-                    print(f"❌ OpenAI TTS error for scene {scene_number}: {str(e)}")
-                    raise e
-            
-            # Create tasks for parallel processing
-            tasks = [generate_single_audio_openai(scene_data) for scene_data in scene_texts]
-            
-            # Execute all audio generation tasks in parallel
-            audio_results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Check for any failures and collect successful results
-            audio_batch = []
-            for i, result in enumerate(audio_results):
-                if isinstance(result, Exception):
-                    print(f"❌ OpenAI batch failed for scene {i+1}: {result}")
-                    raise result
-                else:
-                    audio_batch.append(result)
-            
-            print(f"✅ OpenAI batch audio generation completed: {len(audio_batch)} files")
-            return audio_batch
-            
-        except Exception as e:
-            print(f"❌ OpenAI batch processing failed: {str(e)}")
-            raise e
     
-    async def generate_audio(self, text: str, scene_number: int) -> bytes:
+    async def generate_audio(self, text: str, scene_number: int, isfemale: bool = True) -> bytes:
         """Generate audio using OpenAI TTS (individual scene - fallback method)"""
-        return await self.generate_audio_openai(text, scene_number)
+        return await self.generate_audio_openai(text, scene_number, isfemale=isfemale)
     
-    async def generate_audio_openai(self, text: str, scene_number: int) -> bytes:
+    async def generate_audio_openai(self, text: str, scene_number: int, isfemale: bool = True) -> bytes:
         """Fallback: Generate audio using OpenAI Text-to-Speech"""
         try:
+            voice = "sage" if isfemale else "onyx"  # Female = sage, Male = onyx
             print(f"🎵 Using OpenAI TTS for scene {scene_number}")
+            print(f"🎤 Voice selected: {voice} ({'female' if isfemale else 'male'})")
             
             response = self.openai_client.audio.speech.create(
-                model="tts-1",  # Faster model
-                voice="nova",   # Child-friendly voice
+                model="tts-1",  # Standard model
+                voice=voice,   # Dynamic voice based on isfemale parameter
                 input=text,
                 response_format="wav"  # Changed from mp3 to wav
             )
@@ -518,7 +469,7 @@ class MediaService:
             return image_data  # Return original if conversion fails
     
     async def generate_image_replicate(self, visual_prompt: str, scene_number: int, child_image_url: str = None) -> bytes:
-        """Generate image using Replicate SDXL at 512x512 then resize to 304x304 with optional face swapping"""
+        """Generate image using Replicate SDXL at 512x512 then resize to 304x304 (face swapping temporarily disabled)"""
         try:
             print(f"🖼️ Generating image for scene {scene_number} with Replicate SDXL (1024x1024 → 304x304)")
             
@@ -576,10 +527,13 @@ class MediaService:
             resized_image_data = await loop.run_in_executor(None, create_and_resize_image)
             
             # Apply face swapping if child image URL is provided
-            if child_image_url:
+            # TEMPORARILY DISABLED - keeping code for future use
+            if child_image_url and False:  # Disabled face swap
                 print(f"🔄 Applying face swap for scene {scene_number}...")
                 resized_image_data = await self.swap_face_deepimage(resized_image_data, child_image_url)
                 print(f"✅ Face swap completed for scene {scene_number}")
+            elif child_image_url:
+                print(f"⚠️ Face swap temporarily disabled for scene {scene_number}")
             
             print(f"✅ Replicate SDXL image generated and resized for scene {scene_number}: {len(resized_image_data)} bytes (304x304)")
             return resized_image_data
@@ -592,5 +546,5 @@ class MediaService:
             )
     
     async def generate_image(self, visual_prompt: str, scene_number: int, child_image_url: str = None) -> bytes:
-        """Generate image using Replicate SDXL with optional face swapping (main method)"""
+        """Generate image using Replicate SDXL (face swapping temporarily disabled - main method)"""
         return await self.generate_image_replicate(visual_prompt, scene_number, child_image_url)

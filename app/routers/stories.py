@@ -45,7 +45,7 @@ def add_cors_headers(response: Response):
 
 # ===== STORY GENERATION (Keep existing methods) =====
 
-async def process_scenes_parallel_optimized(scenes, story_id, media_service, storage_service, user_profile=None):
+async def process_scenes_parallel_optimized(scenes, story_id, media_service, storage_service, user_profile=None, isfemale=True):
     """Process all scenes in parallel with batch audio AND batch image generation"""
     print(f"\n🔥 Starting FULLY OPTIMIZED parallel processing for {len(scenes)} scenes...")
     
@@ -74,7 +74,7 @@ async def process_scenes_parallel_optimized(scenes, story_id, media_service, sto
     
     # Run both batch operations simultaneously
     batch_tasks = [
-        media_service.generate_audio_batch(scene_texts),
+        media_service.generate_audio_batch(scene_texts, isfemale=isfemale),
         media_service.generate_image_batch(visual_prompts, child_image_url)
     ]
     
@@ -180,7 +180,8 @@ async def generate_story_async(
         asyncio.create_task(
             generate_story_background(
                 story_id, request.prompt, user_id, 
-                story_service, media_service, storage_service
+                story_service, media_service, storage_service,
+                isfemale=request.isfemale
             )
         )
         
@@ -209,7 +210,8 @@ async def generate_story_background(
     user_id: str,
     story_service: StoryService,
     media_service: MediaService,
-    storage_service: StorageService
+    storage_service: StorageService,
+    isfemale: bool = True
 ):
     """Background task to generate the complete story with story ID array tracking"""
     try:
@@ -229,7 +231,7 @@ async def generate_story_background(
         
         # Process all scenes with FULLY optimized parallel processing
         processed_scenes_with_duration = await process_scenes_parallel_optimized(
-            scenes, story_id, media_service, storage_service, user_profile
+            scenes, story_id, media_service, storage_service, user_profile, isfemale=isfemale
         )
         
         # Extract scenes and calculate timings

@@ -8,6 +8,7 @@ from datetime import datetime
 class StoryPromptRequest(BaseModel):
     firebase_token: str
     prompt: str
+    isfemale: Optional[bool] = True  # Default to female voice (sage), False = male voice (ballad)
 
 class SystemPromptUpdate(BaseModel):
     firebase_token: str
