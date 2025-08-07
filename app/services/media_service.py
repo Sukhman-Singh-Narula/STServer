@@ -132,8 +132,11 @@ class MediaService:
                         loop = asyncio.get_event_loop()
                         
                         def create_image():
+                            # Apply child safety filters to the visual prompt
+                            safe_visual_prompt = self._sanitize_visual_prompt(visual_prompt)
+                            
                             # Enhance the prompt for children's book style
-                            enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
+                            enhanced_prompt = f"Children's book illustration style, colorful cartoon, kid-friendly, bright colors, happy characters, safe family content: {safe_visual_prompt}"
                             
                             # Sanitize prompt - limit length and remove problematic characters
                             enhanced_prompt = enhanced_prompt[:500]  # Limit to 500 characters
@@ -384,3 +387,32 @@ class MediaService:
     async def generate_image(self, visual_prompt: str, scene_number: int, child_image_url: str = None) -> bytes:
         """Generate image using DeepAI (face swapping temporarily disabled - main method)"""
         return await self.generate_image_deepai(visual_prompt, scene_number, child_image_url)
+    
+    def _sanitize_visual_prompt(self, prompt: str) -> str:
+        """Apply child safety filters to visual prompts"""
+        # Remove potentially inappropriate keywords
+        inappropriate_words = [
+            'scary', 'dark', 'violent', 'weapon', 'gun', 'knife', 'blood', 'death',
+            'monster', 'evil', 'demon', 'horror', 'nightmare', 'spooky', 'creepy',
+            'sad', 'crying', 'angry', 'mean', 'dangerous', 'hurt', 'pain'
+        ]
+        
+        safe_prompt = prompt.lower()
+        for word in inappropriate_words:
+            safe_prompt = safe_prompt.replace(word, '')
+        
+        # Add positive descriptors
+        safe_descriptors = [
+            'happy', 'colorful', 'bright', 'cheerful', 'friendly', 'smiling', 
+            'magical', 'wonderful', 'beautiful', 'peaceful', 'joyful'
+        ]
+        
+        # Clean up extra spaces
+        safe_prompt = ' '.join(safe_prompt.split())
+        
+        # Add a random positive descriptor if the prompt seems too plain
+        if len(safe_prompt.split()) < 5:
+            import random
+            safe_prompt += f" {random.choice(safe_descriptors)}"
+        
+        return safe_prompt
