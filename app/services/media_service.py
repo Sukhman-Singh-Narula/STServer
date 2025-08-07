@@ -1,4 +1,4 @@
-# ===== app/services/media_service.py - OPTIMIZED WITH BATCH PROCESSING AND REPLICATE =====
+# ===== app/services/media_service.py - OPTIMIZED WITH BATCH PROCESSING AND DEEPAI =====
 import io
 import json
 import time
@@ -9,7 +9,6 @@ import requests
 from typing import Union, List, Dict
 from fastapi import HTTPException
 from openai import OpenAI
-import replicate
 from app.config import settings
 from app.services.storage_service import StorageService
 from PIL import Image
@@ -17,181 +16,24 @@ from PIL import Image
 class MediaService:
     def __init__(self, openai_client: OpenAI):
         self.openai_client = openai_client
-        # Configure Replicate with API token - try multiple methods
-        print(f"🔧 Loading Replicate API token: {settings.replicate_api_token[:10]}..." if settings.replicate_api_token else "❌ No Replicate API token found!")
         
-        # Method 1: Set via replicate.api_token
-        replicate.api_token = settings.replicate_api_token
+        # DeepAI Configuration
+        self.deepai_api_key = settings.deepai_api_key
+        self.deepai_url = "https://api.deepai.org/api/text2img"
         
-        # Method 2: Also set as environment variable as backup
-        import os
-        os.environ["REPLICATE_API_TOKEN"] = settings.replicate_api_token
-        
-        # Method 3: Create client with explicit token
-        self.replicate_client = replicate
-        
-        print(f"🔧 Replicate token set via multiple methods. Testing authentication...")
-        # Test token by checking if it's accessible
-        try:
-            # This should trigger authentication check
-            current_token = replicate.api_token
-            print(f"✅ Replicate token accessible: {current_token[:10]}..." if current_token else "❌ No token in replicate.api_token")
-        except Exception as e:
-            print(f"❌ Error accessing replicate token: {e}")
+        print(f"✅ MediaService initialized with DeepAI image generation")
     
-    async def swap_face_deepimage(self, target_image_bytes: bytes, source_image_url: str) -> bytes:
-        """
-        Swap face using Deep-Image AI API with face swapping
-        target_image_bytes: The generated story image where we want to swap the face
-        source_image_url: The Firebase URL of the child's reference image
-        Returns: The face-swapped image as bytes
-        """
-        try:
-            print(f"🔄 Starting face swap with Deep-Image AI API...")
-            print(f"   Target image size: {len(target_image_bytes)} bytes")
-            print(f"   Source image URL: {source_image_url[:50]}...")
-            
-            # First upload the target image to get a URL (instead of using base64)
-            # Deep-Image works better with URLs than base64
-            temp_storage = StorageService()
-            
-            # Upload target image temporarily to get a URL
-            target_filename = f"temp/faceswap_target_{int(time.time())}.jpg"
-            target_url = await temp_storage.upload_image(target_image_bytes, target_filename, "image/jpeg")
-            
-            print(f"   Uploaded target image: {target_url[:50]}...")
-            
-            # Prepare the API request according to Deep-Image AI documentation
-            url = "https://deep-image.ai/rest_api/process_result"
-            headers = {
-                "x-api-key": settings.deepimage_api_key,
-                "Content-Type": "application/json"
-            }
-            
-            # Use the correct format for face swapping with Deep-Image AI
-            payload = {
-                "url": target_url,  # Target image URL (from Firebase)
-                "background": {
-                    "generate": {
-                        "strength": 0.1,  # Low strength to preserve the scene but swap face
-                        "adapter_type": "face",
-                        "avatar_generation_type": "creative_img2img",
-                        "ip_image2": source_image_url  # Source face image (Firebase URL)
-                    }
-                }
-            }
-            
-            print(f"   Sending request to Deep-Image API...")
-            print(f"   Payload: {json.dumps(payload, indent=2)}")
-            
-            # Make async HTTP request
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
-                async with session.post(url, json=payload, headers=headers) as response:
-                    response_text = await response.text()
-                    print(f"   Deep-Image API response status: {response.status}")
-                    print(f"   Deep-Image API response: {response_text[:200]}...")
-                    
-                    if response.status == 200:
-                        try:
-                            result = json.loads(response_text)
-                            
-                            # Check if we got a result URL directly
-                            if 'result_url' in result or 'url' in result:
-                                result_url = result.get('result_url') or result.get('url')
-                                
-                                print(f"   Got result URL: {result_url[:50]}...")
-                                
-                                # Download the result image
-                                async with session.get(result_url) as img_response:
-                                    if img_response.status == 200:
-                                        swapped_image_bytes = await img_response.read()
-                                        print(f"✅ Face swap completed: {len(swapped_image_bytes)} bytes")
-                                        
-                                        # Clean up temporary target image
-                                        try:
-                                            await temp_storage.delete_file(target_filename)
-                                        except:
-                                            pass  # Ignore cleanup errors
-                                        
-                                        return swapped_image_bytes
-                                    else:
-                                        raise Exception(f"Failed to download result image: {img_response.status}")
-                            
-                            # Check if we need to poll for a job
-                            elif 'job' in result or 'job_id' in result:
-                                job_id = result.get('job') or result.get('job_id')
-                                print(f"   Got job ID: {job_id}, polling for completion...")
-                                
-                                # Poll for completion (max 30 seconds)
-                                max_polls = 30
-                                poll_count = 0
-                                
-                                while poll_count < max_polls:
-                                    await asyncio.sleep(1)
-                                    poll_count += 1
-                                    
-                                    # Check job status
-                                    status_url = f"https://deep-image.ai/rest_api/result/{job_id}"
-                                    async with session.get(status_url, headers=headers) as status_response:
-                                        if status_response.status == 200:
-                                            status_text = await status_response.text()
-                                            status_result = json.loads(status_text)
-                                            
-                                            if status_result.get('status') == 'complete' or 'result_url' in status_result or 'url' in status_result:
-                                                result_url = status_result.get('result_url') or status_result.get('url')
-                                                if result_url:
-                                                    print(f"   Job completed, downloading result...")
-                                                    
-                                                    # Download the result image
-                                                    async with session.get(result_url) as img_response:
-                                                        if img_response.status == 200:
-                                                            swapped_image_bytes = await img_response.read()
-                                                            print(f"✅ Face swap completed after {poll_count}s: {len(swapped_image_bytes)} bytes")
-                                                            
-                                                            # Clean up temporary target image
-                                                            try:
-                                                                await temp_storage.delete_file(target_filename)
-                                                            except:
-                                                                pass
-                                                            
-                                                            return swapped_image_bytes
-                                                        else:
-                                                            raise Exception(f"Failed to download result image: {img_response.status}")
-                                                else:
-                                                    raise Exception("Job completed but no result_url provided")
-                                            
-                                            elif status_result.get('status') in ['received', 'in_progress', 'processing', 'not_started']:
-                                                # Still processing, continue polling
-                                                continue
-                                            else:
-                                                # Error status
-                                                raise Exception(f"Job failed with status: {status_result.get('status')} - {status_result.get('message', 'Unknown error')}")
-                                        else:
-                                            print(f"   Failed to check job status: {status_response.status}")
-                                            continue
-                                
-                                # Timeout
-                                print(f"⚠️ Face swap job timed out after {max_polls} seconds")
-                                raise Exception("Face swap job timed out")
-                            
-                            else:
-                                # Unknown response format
-                                raise Exception(f"Unexpected response format from Deep-Image API: {result}")
-                        
-                        except json.JSONDecodeError:
-                            raise Exception(f"Invalid JSON response from Deep-Image API: {response_text}")
-                    
-                    else:
-                        # API error
-                        raise Exception(f"Deep-Image API error {response.status}: {response_text}")
-                        
-        except Exception as e:
-            print(f"❌ Face swap error: {str(e)}")
-            # Return original image if face swap fails
-            return target_image_bytes
-            print("🔄 Returning original image due to face swap failure")
-            return target_image_bytes
-    
+    # FACE SWAP FEATURE - COMMENTED OUT FOR NOW (DEEPIMAGE AI)
+    # async def swap_face_deepimage(self, target_image_bytes: bytes, source_image_url: str) -> bytes:
+    #     """
+    #     Swap face using Deep-Image AI API with face swapping
+    #     target_image_bytes: The generated story image where we want to swap the face
+    #     source_image_url: The Firebase URL of the child's reference image
+    #     Returns: The face-swapped image as bytes
+    #     """
+    #     # Face swap functionality disabled for now - return original image
+    #     return target_image_bytes
+
     async def generate_audio_batch(self, scene_texts: List[Dict], isfemale: bool = True) -> List[bytes]:
         """Generate audio for multiple scenes in parallel using OpenAI TTS"""
         try:
@@ -272,142 +114,83 @@ class MediaService:
             raise e
     
     async def generate_image_batch(self, visual_prompts: List[Dict], child_image_url: str = None) -> List[bytes]:
-        """Generate images for multiple scenes in parallel using Replicate SDXL (face swapping temporarily disabled)"""
+        """Generate images for multiple scenes in parallel using DeepAI (face swapping temporarily disabled)"""
         try:
-            print(f"🖼️ Starting Replicate SDXL batch image generation for {len(visual_prompts)} scenes...")
+            print(f"🖼️ Starting DeepAI batch image generation for {len(visual_prompts)} scenes...")
             
-            # Create semaphore to limit concurrent requests (avoid GPU memory issues)
-            semaphore = asyncio.Semaphore(1)  # Max 1 concurrent image request to prevent CUDA OOM
+            # Create semaphore to limit concurrent requests
+            semaphore = asyncio.Semaphore(3)  # Max 3 concurrent requests to DeepAI
             
-            async def generate_single_image_replicate(prompt_data):
-                """Generate image for a single scene using Replicate SDXL"""
+            async def generate_single_image_deepai(prompt_data):
+                """Generate image for a single scene using DeepAI"""
                 visual_prompt = prompt_data['visual_prompt']
                 scene_number = prompt_data['scene_number']
                 
                 async with semaphore:  # Limit concurrency
                     try:
-                        # Run Replicate generation in thread pool
+                        # Run DeepAI generation in thread pool
                         loop = asyncio.get_event_loop()
                         
                         def create_image():
                             # Enhance the prompt for children's book style
                             enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
                             
-                            # Primary model: SDXL
-                            primary_model = "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc"
-                            # Fallback model: Stable Diffusion 2.1 (faster, more reliable)
-                            fallback_model = "stability-ai/stable-diffusion:db21e45d3f7023abc2a46ee38a23973f6dce16bb082a930b0c49861f96d1e5bf"
+                            # Sanitize prompt - limit length and remove problematic characters
+                            enhanced_prompt = enhanced_prompt[:500]  # Limit to 500 characters
+                            enhanced_prompt = enhanced_prompt.replace('"', "'").replace('\n', ' ').replace('\r', ' ')
                             
-                            # Replicate SDXL input configuration - generate at 512x512 for memory optimization
-                            input_config = {
-                                "width": 512,
-                                "height": 512,
-                                "prompt": enhanced_prompt,
-                                "refine": "expert_ensemble_refiner",
-                                "apply_watermark": False,
-                                "num_inference_steps": 15
-                            }
+                            print(f"🎨 DeepAI prompt for scene {scene_number}: {enhanced_prompt[:100]}...")
                             
-                            # Fallback config for SD 2.1 (different parameter names)
-                            fallback_config = {
-                                "width": 512,
-                                "height": 512,
-                                "prompt": enhanced_prompt,
-                                "num_inference_steps": 20,
-                                "guidance_scale": 7.5
-                            }
-                            
-                            # Try primary model first, then fallback
-                            models_to_try = [
-                                (primary_model, input_config, "SDXL"),
-                                (fallback_model, fallback_config, "SD2.1")
-                            ]
-                            
-                            output = None
-                            model_used = None
-                            
-                            for model_id, config, model_name in models_to_try:
-                                # Generate image using Replicate with retry for errors
-                                max_retries = 2
-                                for attempt in range(max_retries):
-                                    try:
-                                        # Ensure token is set right before the call
-                                        replicate.api_token = settings.replicate_api_token
-                                        
-                                        print(f"🔄 Calling Replicate {model_name} for scene {scene_number} (attempt {attempt + 1})...")
-                                        output = replicate.run(model_id, input=config)
-                                        
-                                        # Validate output is not None and has proper format
-                                        if output is None:
-                                            raise Exception("Replicate returned None output")
-                                        
-                                        # Convert output to list if it's not already
-                                        if not isinstance(output, (list, tuple)):
-                                            if hasattr(output, '__iter__') and not isinstance(output, str):
-                                                output = list(output)
-                                            else:
-                                                raise Exception(f"Unexpected output format: {type(output)}")
-                                        
-                                        print(f"✅ Replicate {model_name} response for scene {scene_number}: {len(output)} items")
-                                        model_used = model_name
-                                        break  # Success, exit retry loop
-                                        
-                                    except Exception as e:
-                                        error_msg = str(e)
-                                        print(f"❌ Replicate {model_name} error attempt {attempt + 1}: {error_msg}")
-                                        
-                                        # Handle specific error types
-                                        if "Expecting value: line 1 column 1 (char 0)" in error_msg:
-                                            print(f"🔍 JSON parsing error - likely empty response from Replicate API")
-                                            if attempt < max_retries - 1:
-                                                print(f"🔄 Retrying in 3 seconds...")
-                                                import time
-                                                time.sleep(3)
-                                                continue
-                                        elif "CUDA out of memory" in error_msg and attempt < max_retries - 1:
-                                            print(f"🔄 CUDA memory error, retrying in 5 seconds...")
-                                            import time
-                                            time.sleep(5)
+                            # DeepAI API request with retry logic
+                            max_retries = 2
+                            for attempt in range(max_retries):
+                                try:
+                                    response = requests.post(
+                                        self.deepai_url,
+                                        data={'text': enhanced_prompt},
+                                        headers={'api-key': self.deepai_api_key},
+                                        timeout=30
+                                    )
+                                    
+                                    if response.status_code == 200:
+                                        result = response.json()
+                                        if 'output_url' not in result:
+                                            raise Exception(f"DeepAI response missing output_url: {result}")
+                                        break
+                                    else:
+                                        if attempt < max_retries - 1:
+                                            print(f"⚠️ DeepAI attempt {attempt + 1} failed (status {response.status_code}), retrying...")
+                                            time.sleep(2)
                                             continue
-                                        
-                                        # If it's the last attempt for this model, try next model
-                                        if attempt == max_retries - 1:
-                                            print(f"❌ All retries failed for {model_name}, trying next model...")
-                                            break
-                                
-                                # If we got output, break from model loop
-                                if output and len(output) > 0:
-                                    break
+                                        else:
+                                            raise Exception(f"DeepAI API error {response.status_code}: {response.text}")
+                                            
+                                except requests.RequestException as e:
+                                    if attempt < max_retries - 1:
+                                        print(f"⚠️ DeepAI network error attempt {attempt + 1}, retrying...")
+                                        time.sleep(2)
+                                        continue
+                                    else:
+                                        raise Exception(f"DeepAI network error: {str(e)}")
                             
-                            # Check if we got any output from any model
-                            if not output or len(output) == 0:
-                                raise Exception("All Replicate models failed to generate output")
+                            # Download the generated image
+                            image_url = result['output_url']
+                            image_response = requests.get(image_url, timeout=30)
+                            if image_response.status_code != 200:
+                                raise Exception(f"Failed to download image from {image_url}")
                             
-                            # Get the first output URL and download it
-                            if output and len(output) > 0:
-                                image_url = output[0]  # First image URL
-                                print(f"📥 Downloading {model_used} image from: {image_url}")
-                                
-                                # Download the image
-                                response = requests.get(image_url, timeout=30)
-                                if response.status_code == 200:
-                                    image_data = response.content
-                                else:
-                                    raise Exception(f"Failed to download image: HTTP {response.status_code}")
-                            else:
-                                raise Exception("No output generated from any Replicate model")
+                            image_data = image_response.content
                             
-                            # Resize from 512x512 to 304x304 using PIL
+                            # Resize to 304x304 using PIL (maintaining existing image processing)
                             image = Image.open(io.BytesIO(image_data))
                             resized_image = image.resize((304, 304), Image.LANCZOS)
                             
-                            # Save resized image back to bytes - ALWAYS as JPEG
-                            output_buffer = io.BytesIO()
-                            # Force JPEG format for all images
                             # Convert RGBA to RGB if needed for JPEG compatibility
                             if resized_image.mode in ('RGBA', 'LA', 'P'):
                                 resized_image = resized_image.convert('RGB')
                             
+                            # Save resized image back to bytes as JPEG
+                            output_buffer = io.BytesIO()
                             resized_image.save(output_buffer, format='JPEG', quality=85, optimize=True)
                             
                             return output_buffer.getvalue()
@@ -418,45 +201,45 @@ class MediaService:
                         # TEMPORARILY DISABLED - keeping code for future use
                         if child_image_url and False:  # Disabled face swap
                             print(f"🔄 Applying face swap for scene {scene_number}...")
-                            image_data = await self.swap_face_deepimage(image_data, child_image_url)
+                            # image_data = await self.swap_face_deepimage(image_data, child_image_url)
                             print(f"✅ Face swap completed for scene {scene_number}")
                         elif child_image_url:
                             print(f"⚠️ Face swap temporarily disabled for scene {scene_number}")
                         
-                        print(f"✅ Replicate image generated for scene {scene_number}: {len(image_data)} bytes")
+                        print(f"✅ DeepAI image generated for scene {scene_number}: {len(image_data)} bytes (304x304)")
                         return image_data
                         
                     except Exception as e:
-                        print(f"❌ Replicate SDXL batch error for scene {scene_number}: {str(e)}")
+                        print(f"❌ DeepAI batch error for scene {scene_number}: {str(e)}")
                         raise e
             
             # Create tasks for parallel processing
-            tasks = [generate_single_image_replicate(prompt_data) for prompt_data in visual_prompts]
+            tasks = [generate_single_image_deepai(prompt_data) for prompt_data in visual_prompts]
             
             # Execute all image generation tasks in parallel with timeout
-            print(f"⏰ Starting controlled parallel image generation (max 2 concurrent)...")
+            print(f"⏰ Starting controlled parallel DeepAI image generation (max 3 concurrent)...")
             image_results = await asyncio.wait_for(
                 asyncio.gather(*tasks, return_exceptions=True),
-                timeout=240.0  # 4 minutes total timeout for all images
+                timeout=300.0  # 5 minutes total timeout for all images
             )
             
             # Check for any failures and collect successful results
             image_batch = []
             for i, result in enumerate(image_results):
                 if isinstance(result, Exception):
-                    print(f"❌ Replicate SDXL batch failed for scene {i+1}: {result}")
+                    print(f"❌ DeepAI batch failed for scene {i+1}: {result}")
                     raise result
                 else:
                     image_batch.append(result)
             
-            print(f"✅ Replicate SDXL batch image generation completed: {len(image_batch)} files")
+            print(f"✅ DeepAI batch image generation completed: {len(image_batch)} files")
             return image_batch
             
         except asyncio.TimeoutError:
-            print(f"❌ Replicate SDXL image batch timed out after 4 minutes")
+            print(f"❌ DeepAI image batch timed out after 5 minutes")
             raise HTTPException(status_code=500, detail="Image generation timed out")
         except Exception as e:
-            print(f"❌ Replicate SDXL batch processing failed: {str(e)}")
+            print(f"❌ DeepAI batch processing failed: {str(e)}")
             raise e
     
     async def generate_audio(self, text: str, scene_number: int, isfemale: bool = True) -> bytes:
@@ -527,58 +310,52 @@ class MediaService:
             print(f"🔄 Returning original image data")
             return image_data  # Return original if conversion fails
     
-    async def generate_image_replicate(self, visual_prompt: str, scene_number: int, child_image_url: str = None) -> bytes:
-        """Generate image using Replicate SDXL at 512x512 then resize to 304x304 (face swapping temporarily disabled)"""
+    async def generate_image_deepai(self, visual_prompt: str, scene_number: int, child_image_url: str = None) -> bytes:
+        """Generate image using DeepAI then resize to 304x304 (face swapping temporarily disabled)"""
         try:
-            print(f"🖼️ Generating image for scene {scene_number} with Replicate SDXL (1024x1024 → 304x304)")
+            print(f"🖼️ Generating image for scene {scene_number} with DeepAI (original → 304x304)")
             
             # Enhance the prompt for children's book style
             enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
             
-            # Replicate SDXL input configuration - generate at 1024x1024 for best quality
-            input_config = {
-                "width": 512,  # Reduced from 1024 for memory optimization
-                "height": 512,
-                "prompt": enhanced_prompt,
-                "refine": "expert_ensemble_refiner",
-                "apply_watermark": False,
-                "num_inference_steps": 15  # Reduced for memory optimization
-            }
-            
-            # Run Replicate generation in thread pool
+            # Run DeepAI generation in thread pool
             loop = asyncio.get_event_loop()
             
             def create_and_resize_image():
-                # Ensure token is set right before the call
-                replicate.api_token = settings.replicate_api_token
-                
-                # Generate image using Replicate SDXL
-                output = replicate.run(
-                    "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-                    input=input_config
+                # DeepAI API request
+                response = requests.post(
+                    self.deepai_url,
+                    data={'text': enhanced_prompt},
+                    headers={'api-key': self.deepai_api_key}
                 )
                 
-                # Get the first output and read as bytes
-                for item in output:
-                    image_data = item.read()
-                    break
-                else:
-                    raise Exception("No output generated from Replicate")
+                if response.status_code != 200:
+                    raise Exception(f"DeepAI API error {response.status_code}: {response.text}")
                 
-                # Resize from 1024x1024 to 304x304 using PIL
+                result = response.json()
+                if 'output_url' not in result:
+                    raise Exception(f"DeepAI response missing output_url: {result}")
+                
+                # Download the generated image
+                image_url = result['output_url']
+                image_response = requests.get(image_url)
+                if image_response.status_code != 200:
+                    raise Exception(f"Failed to download image from {image_url}")
+                
+                image_data = image_response.content
+                
+                # Resize to 304x304 using PIL
                 image = Image.open(io.BytesIO(image_data))
                 resized_image = image.resize((304, 304), Image.LANCZOS)
                 
                 # Save resized image back to bytes
                 output_buffer = io.BytesIO()
-                format = image.format if image.format else 'JPEG'
-                if format not in ['JPEG', 'PNG']:
-                    format = 'JPEG'
                 
-                if format == 'JPEG':
-                    resized_image.save(output_buffer, format='JPEG', quality=85, optimize=True)
-                else:
-                    resized_image.save(output_buffer, format=format, optimize=True)
+                # Convert RGBA to RGB if needed for JPEG compatibility
+                if resized_image.mode in ('RGBA', 'LA', 'P'):
+                    resized_image = resized_image.convert('RGB')
+                
+                resized_image.save(output_buffer, format='JPEG', quality=85, optimize=True)
                 
                 return output_buffer.getvalue()
             
@@ -589,21 +366,21 @@ class MediaService:
             # TEMPORARILY DISABLED - keeping code for future use
             if child_image_url and False:  # Disabled face swap
                 print(f"🔄 Applying face swap for scene {scene_number}...")
-                resized_image_data = await self.swap_face_deepimage(resized_image_data, child_image_url)
+                # resized_image_data = await self.swap_face_deepimage(resized_image_data, child_image_url)
                 print(f"✅ Face swap completed for scene {scene_number}")
             elif child_image_url:
                 print(f"⚠️ Face swap temporarily disabled for scene {scene_number}")
             
-            print(f"✅ Replicate SDXL image generated and resized for scene {scene_number}: {len(resized_image_data)} bytes (304x304)")
+            print(f"✅ DeepAI image generated and resized for scene {scene_number}: {len(resized_image_data)} bytes (304x304)")
             return resized_image_data
             
         except Exception as e:
-            print(f"❌ Replicate SDXL error for scene {scene_number}: {str(e)}")
+            print(f"❌ DeepAI error for scene {scene_number}: {str(e)}")
             raise HTTPException(
                 status_code=500, 
-                detail=f"Replicate SDXL image generation failed for scene {scene_number}: {str(e)}"
+                detail=f"DeepAI image generation failed for scene {scene_number}: {str(e)}"
             )
     
     async def generate_image(self, visual_prompt: str, scene_number: int, child_image_url: str = None) -> bytes:
-        """Generate image using Replicate SDXL (face swapping temporarily disabled - main method)"""
-        return await self.generate_image_replicate(visual_prompt, scene_number, child_image_url)
+        """Generate image using DeepAI (face swapping temporarily disabled - main method)"""
+        return await self.generate_image_deepai(visual_prompt, scene_number, child_image_url)

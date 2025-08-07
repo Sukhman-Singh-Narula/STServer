@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     replicate_api_token: str = ""
     deepimage_api_key: str = ""  # DeepImage API key for face swapping
+    deepai_api_key: str = ""  # DeepAI API key for image generation
     
     
     # Story settings
