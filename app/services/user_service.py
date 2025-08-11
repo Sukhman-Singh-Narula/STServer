@@ -58,13 +58,19 @@ class UserService:
                 'parent': {
                     'name': parent.name,
                     'email': parent.email,
-                    'phone_number': parent.phone_number
+                    'phone_number': parent.phone_number,
+                    'avatar_seed': getattr(parent, 'avatar_seed', None),
+                    'avatar_style': getattr(parent, 'avatar_style', 'avataaars'),
+                    'avatar_generated': getattr(parent, 'avatar_generated', False)
                 },
                 'child': {
                     'name': child.name,
                     'age': child.age,
                     'interests': child.interests,
-                    'image_url': image_url  # Will be None if no image was provided
+                    'image_url': image_url,  # Will be None if no image was provided
+                    'avatar_seed': getattr(child, 'avatar_seed', None),
+                    'avatar_style': getattr(child, 'avatar_style', 'avataaars'),
+                    'avatar_generated': getattr(child, 'avatar_generated', False)
                 },
                 'system_prompt': system_prompt,
                 'created_at': datetime.utcnow(),
@@ -129,7 +135,10 @@ class UserService:
                 updates['parent'] = {
                     'name': parent.name,
                     'email': parent.email,
-                    'phone_number': parent.phone_number
+                    'phone_number': parent.phone_number,
+                    'avatar_seed': getattr(parent, 'avatar_seed', None),
+                    'avatar_style': getattr(parent, 'avatar_style', 'avataaars'),
+                    'avatar_generated': getattr(parent, 'avatar_generated', False)
                 }
             
             if child:
@@ -150,7 +159,10 @@ class UserService:
                     'name': child.name,
                     'age': child.age,
                     'interests': child.interests,
-                    'image_url': image_url  # Updated or existing image URL
+                    'image_url': image_url,  # Updated or existing image URL
+                    'avatar_seed': getattr(child, 'avatar_seed', None),
+                    'avatar_style': getattr(child, 'avatar_style', 'avataaars'),
+                    'avatar_generated': getattr(child, 'avatar_generated', False)
                 }
                 # Regenerate system prompt if child info changed
                 if not system_prompt:
@@ -198,6 +210,60 @@ class UserService:
         """Get user's system prompt from memory or default"""
         return self.system_prompts.get(user_id, settings.default_system_prompt)
     
+    async def update_avatar_settings(self, user_id: str, target: str, avatar_seed: str, avatar_style: str = "avataaars") -> Dict[str, Any]:
+        """Update avatar settings for child or parent"""
+        try:
+            if not is_firebase_available() or self.db is None:
+                raise HTTPException(status_code=503, detail="Firebase service is not available")
+            
+            if target not in ["child", "parent"]:
+                raise HTTPException(status_code=400, detail="Target must be 'child' or 'parent'")
+            
+            doc_ref = self.db.collection(self.users_collection).document(user_id)
+            
+            # Get existing profile
+            existing_profile = await self.get_user_profile(user_id)
+            if not existing_profile:
+                raise HTTPException(status_code=404, detail="User profile not found")
+            
+            # Prepare updates
+            updates = {
+                f'{target}.avatar_seed': avatar_seed,
+                f'{target}.avatar_style': avatar_style,
+                f'{target}.avatar_generated': True,
+                'updated_at': datetime.utcnow(),
+                'last_active': datetime.utcnow()
+            }
+            
+            # Update Firestore
+            doc_ref.update(updates)
+            
+            # Return updated profile
+            return await self.get_user_profile(user_id)
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to update avatar settings: {str(e)}")
+    
+    async def get_avatar_settings(self, user_id: str, target: str) -> Dict[str, Any]:
+        """Get avatar settings for child or parent"""
+        try:
+            if target not in ["child", "parent"]:
+                raise HTTPException(status_code=400, detail="Target must be 'child' or 'parent'")
+            
+            profile = await self.get_user_profile(user_id)
+            if not profile:
+                raise HTTPException(status_code=404, detail="User profile not found")
+            
+            target_data = profile.get(target, {})
+            return {
+                "avatar_seed": target_data.get('avatar_seed'),
+                "avatar_style": target_data.get('avatar_style', 'avataaars'),
+                "avatar_generated": target_data.get('avatar_generated', False)
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to get avatar settings: {str(e)}")
+
     def update_system_prompt(self, user_id: str, system_prompt: str):
         """Update system prompt in memory and Firestore"""
         self.system_prompts[user_id] = system_prompt

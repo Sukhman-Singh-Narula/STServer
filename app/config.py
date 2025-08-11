@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # Story settings
     max_scenes: int = 5
     audio_format: str = "wav"  # Changed from mp3 to wav
-    image_size: str = "768x768"  # Final size matching Replicate SDXL output
+    image_size: str = "2600x1200"  # Widescreen format for optimized story visualization
     replicate_generation_size: str = "768x768"  # Generate at optimal SDXL size
     
     # Performance optimization settings
@@ -105,8 +105,8 @@ class Settings(BaseSettings):
     
     @property
     def effective_image_size(self) -> str:
-        """Get effective image size - use 304x304 for Replicate (divisible by 8)"""
-        return "304x304"
+        """Get effective image size - use 2600x1200 for optimized widescreen format"""
+        return "2600x1200"
     
     class Config:
         env_file = ".env"

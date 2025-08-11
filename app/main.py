@@ -113,10 +113,11 @@ async def debug_middleware(request: Request, call_next):
         raise
 
 # NOW we can safely import routers (Firebase is already initialized)
-from app.routers import auth, health
+from app.routers import auth, health, users
 
 app.include_router(auth.router)
 app.include_router(health.router)
+app.include_router(users.router)
 
 # Conditionally include other routers that depend on external services
 try:

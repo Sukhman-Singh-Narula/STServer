@@ -185,10 +185,10 @@ class StorageService:
             # Convert image to grayscale using PIL
             image = Image.open(io.BytesIO(image_data))
             
-            # Image should already be 304x304 from media service, but verify
-            if image.size != (304, 304):
-                print(f"⚠️ Unexpected image size {image.size}, resizing to 304x304")
-                image = image.resize((304, 304), Image.LANCZOS)
+            # Image should already be 2600x1200 from media service, but verify
+            if image.size != (2600, 1200):
+                print(f"⚠️ Unexpected image size {image.size}, resizing to 2600x1200")
+                image = image.resize((2600, 1200), Image.LANCZOS)
             else:
                 print(f"✅ Image already at correct size: {image.size}")
             
@@ -203,7 +203,7 @@ class StorageService:
             if format not in ['JPEG', 'PNG']:
                 format = 'JPEG'  # Default to JPEG for unsupported formats
             
-            # Save grayscale image
+            # Save grayscale image with optimized compression for 2600x1200 images
             if format == 'JPEG':
                 grayscale_image.save(grayscale_buffer, format='JPEG', quality=85, optimize=True)
             else:
@@ -380,7 +380,7 @@ class StorageService:
                     'total_scenes': manifest.get('total_scenes', 0),
                     'total_duration': manifest.get('total_duration', 0),
                     'generation_method': manifest.get('generation_method', 'optimized_parallel'),
-                    'image_format': 'grayscale_960x540_from_dalle2',
+                    'image_format': 'grayscale_2600x1200_from_deepai',
                     'scenes_data': manifest.get('scenes', []),
                     'optimizations': manifest.get('optimizations', []),
                     'ai_models_used': {
