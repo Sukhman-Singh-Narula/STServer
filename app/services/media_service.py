@@ -51,16 +51,43 @@ class MediaService:
         self.deepai_last_failure = time.time()
     
     def _create_placeholder_image(self) -> bytes:
-        """Create a simple placeholder image when generation fails"""
+        """Create a simple placeholder image with text overlay at 1200x2600 pixels"""
         try:
-            # Create a simple colored square
-            placeholder = Image.new('RGB', (2600, 1200), color='lightblue')
+            # Create a 1200x2600 image with a subtle gradient background
+            image = Image.new('RGB', (1200, 2600), color='#f0f0f0')
+            
+            # Add simple text overlay
+            try:
+                # Try to use a basic font
+                from PIL import ImageDraw
+                draw = ImageDraw.Draw(image)
+                
+                # Add centered text
+                text = "Story Image\nGenerating..."
+                text_bbox = draw.textbbox((0, 0), text)
+                text_width = text_bbox[2] - text_bbox[0]
+                text_height = text_bbox[3] - text_bbox[1]
+                
+                x = (1200 - text_width) // 2
+                y = (2600 - text_height) // 2
+                
+                draw.text((x, y), text, fill='#666666')
+                
+            except Exception:
+                pass  # Skip text if font issues
+            
+            # Convert to bytes
             output_buffer = io.BytesIO()
-            placeholder.save(output_buffer, format='JPEG', quality=75)
+            image.save(output_buffer, format='JPEG', quality=85)
             return output_buffer.getvalue()
-        except:
-            # Return minimal bytes if even placeholder fails
-            return b"placeholder"
+            
+        except Exception as e:
+            print(f"⚠️ Error creating placeholder: {e}")
+            # Return minimal valid JPEG
+            minimal_image = Image.new('RGB', (1200, 2600), color='white')
+            buffer = io.BytesIO()
+            minimal_image.save(buffer, format='JPEG')
+            return buffer.getvalue()
     
     def _process_image_fast(self, image_data: bytes) -> bytes:
         """Optimized image processing for speed"""
@@ -68,7 +95,7 @@ class MediaService:
             image = Image.open(io.BytesIO(image_data))
             
             # Fast resize with lower quality for speed
-            resized_image = image.resize((2600, 1200), Image.NEAREST)  # Faster than LANCZOS
+            resized_image = image.resize((1200, 2600), Image.NEAREST)  # Faster than LANCZOS
             
             if resized_image.mode in ('RGBA', 'LA', 'P'):
                 resized_image = resized_image.convert('RGB')
@@ -300,7 +327,7 @@ class MediaService:
                 detail=f"Audio generation failed for scene {scene_number}: {str(e)}"
             )
     
-    def convert_image_to_grayscale_and_resize(self, image_data: bytes, target_size: tuple = (2600, 1200)) -> bytes:
+    def convert_image_to_grayscale_and_resize(self, image_data: bytes, target_size: tuple = (1200, 2600)) -> bytes:
         """Convert image to grayscale and resize to target resolution using PIL"""
         try:
             print(f"🎨 Converting image to grayscale and resizing to {target_size[0]}x{target_size[1]}...")
@@ -308,7 +335,7 @@ class MediaService:
             # Load image from bytes
             image = Image.open(io.BytesIO(image_data))
             
-            # Resize image to target size (2600x1200) using high-quality resampling
+            # Resize image to target size (1200x2600) using high-quality resampling
             resized_image = image.resize(target_size, Image.LANCZOS)
             
             # Convert to grayscale
@@ -336,9 +363,9 @@ class MediaService:
             return image_data  # Return original if conversion fails
     
     async def generate_image_deepai(self, visual_prompt: str, scene_number: int, child_image_url: str = None) -> bytes:
-        """Generate image using DeepAI then resize to 2600x1200 (face swapping temporarily disabled)"""
+        """Generate image using DeepAI then resize to 1200x2600 (face swapping temporarily disabled)"""
         try:
-            print(f"🖼️ Generating image for scene {scene_number} with DeepAI (original → 2600x1200)")
+            print(f"🖼️ Generating image for scene {scene_number} with DeepAI (original → 1200x2600)")
             
             # Enhance the prompt for children's book style
             enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
@@ -369,9 +396,9 @@ class MediaService:
                 
                 image_data = image_response.content
                 
-                # Resize to 2600x1200 using PIL
+                # Resize to 1200x2600 using PIL
                 image = Image.open(io.BytesIO(image_data))
-                resized_image = image.resize((2600, 1200), Image.LANCZOS)
+                resized_image = image.resize((1200, 2600), Image.LANCZOS)
                 
                 # Save resized image back to bytes
                 output_buffer = io.BytesIO()
@@ -396,7 +423,7 @@ class MediaService:
             elif child_image_url:
                 print(f"⚠️ Face swap temporarily disabled for scene {scene_number}")
             
-            print(f"✅ DeepAI image generated and resized for scene {scene_number}: {len(resized_image_data)} bytes (2600x1200)")
+            print(f"✅ DeepAI image generated and resized for scene {scene_number}: {len(resized_image_data)} bytes (1200x2600)")
             return resized_image_data
             
         except Exception as e:

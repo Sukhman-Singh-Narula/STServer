@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # Story settings
     max_scenes: int = 5
     audio_format: str = "wav"  # Changed from mp3 to wav
-    image_size: str = "2600x1200"  # Widescreen format for optimized story visualization
+    image_size: str = "1200x2600"  # Portrait format for optimized mobile story visualization
     replicate_generation_size: str = "768x768"  # Generate at optimal SDXL size
     
     # Performance optimization settings
@@ -105,8 +105,8 @@ class Settings(BaseSettings):
     
     @property
     def effective_image_size(self) -> str:
-        """Get effective image size - use 2600x1200 for optimized widescreen format"""
-        return "2600x1200"
+        """Get effective image size - use 1200x2600 for optimized portrait format"""
+        return "1200x2600"
     
     class Config:
         env_file = ".env"
