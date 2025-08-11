@@ -1,7 +1,7 @@
-# 📚 User CRUD API Documentation
+# 📚 Storytelling Server API Documentation
 
 ## Overview
-This document provides comprehensive documentation for the User CRUD API endpoints with avatar support for the Storytelling Server. These endpoints allow you to manage user profiles, avatar configurations, and associated data.
+This document provides comprehensive documentation for the Storytelling Server API endpoints, including story generation with custom dimensions and user CRUD operations with avatar support.
 
 ## 🌐 Base Configuration
 
@@ -13,6 +13,117 @@ This document provides comprehensive documentation for the User CRUD API endpoin
 All endpoints require Firebase ID token authentication:
 ```http
 Authorization: Bearer <firebase_id_token>
+```
+
+---
+
+## 📖 Story Generation Endpoints
+
+### Generate Story with Custom Dimensions
+Create a personalized story with custom image dimensions.
+
+**Endpoint**: `POST /stories/generate`
+
+**Request Body**:
+```json
+{
+  "firebase_token": "string",
+  "prompt": "Tell me a story about a brave princess",
+  "isfemale": true,
+  "dimensions": "932x430"
+}
+```
+
+**Request Parameters**:
+- `firebase_token` (string, required): Firebase ID token for authentication
+- `prompt` (string, required): The story prompt/description
+- `isfemale` (boolean, optional): Voice gender for narration (true = female, false = male). Default: true
+- `dimensions` (string, optional): Custom image dimensions in "WIDTHxHEIGHT" format. Default: "1200x2600"
+
+**Supported Dimension Formats**:
+- `"932x430"` - Landscape format
+- `"1200x2600"` - Portrait format (default)
+- `"512x512"` - Square format
+- `"1920x1080"` - HD landscape
+- Any custom format between 100x100 and 5000x5000
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Story generation started! Story ID added to your collection.",
+  "story_id": "story_20250811_user123_abc123",
+  "status": "processing",
+  "estimated_completion_time": "30-60 seconds",
+  "tracking_method": "story_id_array"
+}
+```
+
+**Example Requests**:
+
+#### JavaScript/React Example
+```javascript
+const generateStory = async (prompt, dimensions = "932x430", isfemale = false) => {
+  try {
+    const response = await fetch('http://localhost:8000/stories/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        firebase_token: await getFirebaseToken(),
+        prompt: prompt,
+        isfemale: isfemale,
+        dimensions: dimensions
+      })
+    });
+    
+    const result = await response.json();
+    console.log('Story generation started:', result.story_id);
+    return result;
+  } catch (error) {
+    console.error('Story generation failed:', error);
+  }
+};
+
+// Usage examples
+generateStory("A magical adventure in an enchanted forest", "932x430", false);
+generateStory("A princess who loves science", "1200x2600", true);
+```
+
+#### Flutter/Dart Example
+```dart
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+Future<Map<String, dynamic>> generateStory(
+  String prompt, 
+  {String dimensions = "932x430", bool isfemale = false}
+) async {
+  try {
+    final response = await http.post(
+      Uri.parse('http://localhost:8000/stories/generate'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'firebase_token': await getFirebaseToken(),
+        'prompt': prompt,
+        'isfemale': isfemale,
+        'dimensions': dimensions,
+      }),
+    );
+    
+    final result = jsonDecode(response.body);
+    print('Story generation started: ${result['story_id']}');
+    return result;
+  } catch (error) {
+    print('Story generation failed: $error');
+    rethrow;
+  }
+}
+
+// Usage examples
+await generateStory("A brave knight's quest", dimensions: "932x430", isfemale: false);
+await generateStory("A fairy tale adventure", dimensions: "1200x2600", isfemale: true);
 ```
 
 ---

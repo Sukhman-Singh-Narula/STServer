@@ -45,9 +45,10 @@ def add_cors_headers(response: Response):
 
 # ===== STORY GENERATION (Keep existing methods) =====
 
-async def process_scenes_parallel_optimized(scenes, story_id, media_service, storage_service, user_profile=None, isfemale=True):
+async def process_scenes_parallel_optimized(scenes, story_id, media_service, storage_service, user_profile=None, isfemale=True, target_dimensions=(1200, 2600)):
     """Process all scenes in parallel with batch audio AND batch image generation"""
-    print(f"\n🔥 Starting FULLY OPTIMIZED parallel processing for {len(scenes)} scenes...")
+    width, height = target_dimensions
+    print(f"\n🔥 Starting FULLY OPTIMIZED parallel processing for {len(scenes)} scenes at {width}x{height}...")
     
     # Extract child information from user profile
     child_info = user_profile.get('child', {}) if user_profile else {}
@@ -75,7 +76,7 @@ async def process_scenes_parallel_optimized(scenes, story_id, media_service, sto
     # Run both batch operations simultaneously
     batch_tasks = [
         media_service.generate_audio_batch(scene_texts, isfemale=isfemale),
-        media_service.generate_image_batch(visual_prompts, child_image_url)
+        media_service.generate_image_batch(visual_prompts, child_image_url, target_dimensions)
     ]
     
     audio_batch, image_batch = await asyncio.gather(*batch_tasks)
@@ -181,7 +182,8 @@ async def generate_story_async(
             generate_story_background(
                 story_id, request.prompt, user_id, 
                 story_service, media_service, storage_service,
-                isfemale=request.isfemale
+                isfemale=request.isfemale,
+                dimensions=request.dimensions
             )
         )
         
@@ -204,6 +206,15 @@ async def generate_story_async(
         print(f"❌ Failed to start story generation: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to start story generation: {str(e)}")
 
+def parse_dimensions(dimensions_str: str) -> tuple:
+    """Parse dimensions string like '932x430' into tuple (932, 430)"""
+    try:
+        width, height = dimensions_str.split('x')
+        return (int(width), int(height))
+    except:
+        # Default to portrait if parsing fails
+        return (1200, 2600)
+
 async def generate_story_background(
     story_id: str, 
     prompt: str, 
@@ -211,11 +222,18 @@ async def generate_story_background(
     story_service: StoryService,
     media_service: MediaService,
     storage_service: StorageService,
-    isfemale: bool = True
+    isfemale: bool = True,
+    dimensions: str = "1200x2600"
 ):
     """Background task to generate the complete story with story ID array tracking"""
     try:
         print(f"🔄 Background generation started for story: {story_id}")
+        print(f"🖼️ Using custom dimensions: {dimensions}")
+        
+        # Parse dimensions
+        target_dimensions = parse_dimensions(dimensions)
+        width, height = target_dimensions
+        print(f"📐 Parsed dimensions: {width}x{height}")
         
         # Get user profile for child information
         user_service = UserService()
@@ -231,7 +249,7 @@ async def generate_story_background(
         
         # Process all scenes with FULLY optimized parallel processing
         processed_scenes_with_duration = await process_scenes_parallel_optimized(
-            scenes, story_id, media_service, storage_service, user_profile, isfemale=isfemale
+            scenes, story_id, media_service, storage_service, user_profile, isfemale=isfemale, target_dimensions=target_dimensions
         )
         
         # Extract scenes and calculate timings

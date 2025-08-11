@@ -50,11 +50,12 @@ class MediaService:
         self.deepai_failures += 1
         self.deepai_last_failure = time.time()
     
-    def _create_placeholder_image(self) -> bytes:
-        """Create a simple placeholder image with text overlay at 1200x2600 pixels"""
+    def _create_placeholder_image(self, dimensions: tuple = (1200, 2600)) -> bytes:
+        """Create a simple placeholder image with text overlay at specified dimensions"""
         try:
-            # Create a 1200x2600 image with a subtle gradient background
-            image = Image.new('RGB', (1200, 2600), color='#f0f0f0')
+            width, height = dimensions
+            # Create an image with the specified dimensions
+            image = Image.new('RGB', (width, height), color='#f0f0f0')
             
             # Add simple text overlay
             try:
@@ -68,8 +69,8 @@ class MediaService:
                 text_width = text_bbox[2] - text_bbox[0]
                 text_height = text_bbox[3] - text_bbox[1]
                 
-                x = (1200 - text_width) // 2
-                y = (2600 - text_height) // 2
+                x = (width - text_width) // 2
+                y = (height - text_height) // 2
                 
                 draw.text((x, y), text, fill='#666666')
                 
@@ -84,18 +85,19 @@ class MediaService:
         except Exception as e:
             print(f"⚠️ Error creating placeholder: {e}")
             # Return minimal valid JPEG
-            minimal_image = Image.new('RGB', (1200, 2600), color='white')
+            width, height = dimensions
+            minimal_image = Image.new('RGB', (width, height), color='white')
             buffer = io.BytesIO()
             minimal_image.save(buffer, format='JPEG')
             return buffer.getvalue()
     
-    def _process_image_fast(self, image_data: bytes) -> bytes:
-        """Optimized image processing for speed"""
+    def _process_image_fast(self, image_data: bytes, target_dimensions: tuple = (1200, 2600)) -> bytes:
+        """Optimized image processing for speed with custom dimensions"""
         try:
             image = Image.open(io.BytesIO(image_data))
             
             # Fast resize with lower quality for speed
-            resized_image = image.resize((1200, 2600), Image.NEAREST)  # Faster than LANCZOS
+            resized_image = image.resize(target_dimensions, Image.NEAREST)  # Faster than LANCZOS
             
             if resized_image.mode in ('RGBA', 'LA', 'P'):
                 resized_image = resized_image.convert('RGB')
@@ -105,7 +107,7 @@ class MediaService:
             
             return output_buffer.getvalue()
         except:
-            return self._create_placeholder_image()
+            return self._create_placeholder_image(target_dimensions)
     
     # FACE SWAP FEATURE - COMMENTED OUT FOR NOW (DEEPIMAGE AI)
     # async def swap_face_deepimage(self, target_image_bytes: bytes, source_image_url: str) -> bytes:
@@ -196,10 +198,11 @@ class MediaService:
             print(f"❌ OpenAI batch processing failed: {str(e)}")
             raise e
     
-    async def generate_image_batch(self, visual_prompts: List[Dict], child_image_url: str = None) -> List[bytes]:
+    async def generate_image_batch(self, visual_prompts: List[Dict], child_image_url: str = None, target_dimensions: tuple = (1200, 2600)) -> List[bytes]:
         """Generate images for multiple scenes in parallel using DeepAI with optimized timeouts"""
         try:
-            print(f"🖼️ Starting DeepAI batch image generation for {len(visual_prompts)} scenes...")
+            width, height = target_dimensions
+            print(f"🖼️ Starting DeepAI batch image generation for {len(visual_prompts)} scenes at {width}x{height}...")
             
             # Increase concurrency for faster processing
             semaphore = asyncio.Semaphore(8)  # Increased from 3 to 8
@@ -214,7 +217,7 @@ class MediaService:
                         # Check circuit breaker
                         if not self._check_deepai_circuit():
                             print(f"⚠️ DeepAI circuit open for scene {scene_number}, using placeholder")
-                            return self._create_placeholder_image()
+                            return self._create_placeholder_image(target_dimensions)
                         
                         loop = asyncio.get_event_loop()
                         
@@ -243,8 +246,8 @@ class MediaService:
                                             # Download with shorter timeout
                                             image_response = requests.get(result['output_url'], timeout=15)
                                             if image_response.status_code == 200:
-                                                # Optimized image processing
-                                                return self._process_image_fast(image_response.content)
+                                                # Optimized image processing with custom dimensions
+                                                return self._process_image_fast(image_response.content, target_dimensions)
                                             
                                     # Quick retry without long delays
                                     if attempt < max_retries - 1:
@@ -264,7 +267,7 @@ class MediaService:
                     except Exception as e:
                         print(f"❌ DeepAI error for scene {scene_number}: {str(e)}")
                         self._record_deepai_failure()
-                        return self._create_placeholder_image()
+                        return self._create_placeholder_image(target_dimensions)
                                     
                         
             # Execute with shorter overall timeout
@@ -280,7 +283,7 @@ class MediaService:
                 if isinstance(result, Exception):
                     print(f"❌ Scene {i+1} failed, using placeholder")
                     # Use placeholder instead of failing entire batch
-                    image_batch.append(self._create_placeholder_image())
+                    image_batch.append(self._create_placeholder_image(target_dimensions))
                 else:
                     image_batch.append(result)
             
@@ -289,7 +292,7 @@ class MediaService:
             
         except asyncio.TimeoutError:
             print(f"⚠️ DeepAI batch timed out, using placeholders")
-            return [self._create_placeholder_image() for _ in visual_prompts]
+            return [self._create_placeholder_image(target_dimensions) for _ in visual_prompts]
         except Exception as e:
             print(f"❌ DeepAI batch failed, using placeholders: {str(e)}")
             return [self._create_placeholder_image() for _ in visual_prompts]
@@ -335,7 +338,7 @@ class MediaService:
             # Load image from bytes
             image = Image.open(io.BytesIO(image_data))
             
-            # Resize image to target size (1200x2600) using high-quality resampling
+            # Resize image to target size using high-quality resampling
             resized_image = image.resize(target_size, Image.LANCZOS)
             
             # Convert to grayscale
@@ -362,10 +365,11 @@ class MediaService:
             print(f"🔄 Returning original image data")
             return image_data  # Return original if conversion fails
     
-    async def generate_image_deepai(self, visual_prompt: str, scene_number: int, child_image_url: str = None) -> bytes:
-        """Generate image using DeepAI then resize to 1200x2600 (face swapping temporarily disabled)"""
+    async def generate_image_deepai(self, visual_prompt: str, scene_number: int, child_image_url: str = None, target_dimensions: tuple = (1200, 2600)) -> bytes:
+        """Generate image using DeepAI then resize to custom dimensions (face swapping temporarily disabled)"""
         try:
-            print(f"🖼️ Generating image for scene {scene_number} with DeepAI (original → 1200x2600)")
+            width, height = target_dimensions
+            print(f"🖼️ Generating image for scene {scene_number} with DeepAI (original → {width}x{height})")
             
             # Enhance the prompt for children's book style
             enhanced_prompt = f"Children's book illustration style, colorful and friendly, high quality digital art: {visual_prompt}"
@@ -396,9 +400,9 @@ class MediaService:
                 
                 image_data = image_response.content
                 
-                # Resize to 1200x2600 using PIL
+                # Resize to custom dimensions using PIL
                 image = Image.open(io.BytesIO(image_data))
-                resized_image = image.resize((1200, 2600), Image.LANCZOS)
+                resized_image = image.resize(target_dimensions, Image.LANCZOS)
                 
                 # Save resized image back to bytes
                 output_buffer = io.BytesIO()
@@ -423,7 +427,8 @@ class MediaService:
             elif child_image_url:
                 print(f"⚠️ Face swap temporarily disabled for scene {scene_number}")
             
-            print(f"✅ DeepAI image generated and resized for scene {scene_number}: {len(resized_image_data)} bytes (1200x2600)")
+            width, height = target_dimensions
+            print(f"✅ DeepAI image generated and resized for scene {scene_number}: {len(resized_image_data)} bytes ({width}x{height})")
             return resized_image_data
             
         except Exception as e:
@@ -433,9 +438,9 @@ class MediaService:
                 detail=f"DeepAI image generation failed for scene {scene_number}: {str(e)}"
             )
     
-    async def generate_image(self, visual_prompt: str, scene_number: int, child_image_url: str = None) -> bytes:
+    async def generate_image(self, visual_prompt: str, scene_number: int, child_image_url: str = None, target_dimensions: tuple = (1200, 2600)) -> bytes:
         """Generate image using DeepAI (face swapping temporarily disabled - main method)"""
-        return await self.generate_image_deepai(visual_prompt, scene_number, child_image_url)
+        return await self.generate_image_deepai(visual_prompt, scene_number, child_image_url, target_dimensions)
     
     def _sanitize_visual_prompt(self, prompt: str) -> str:
         """Apply child safety filters to visual prompts"""

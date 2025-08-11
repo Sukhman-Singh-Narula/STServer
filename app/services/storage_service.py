@@ -185,12 +185,12 @@ class StorageService:
             # Convert image to grayscale using PIL
             image = Image.open(io.BytesIO(image_data))
             
-            # Image should already be 1200x2600 from media service, but verify
-            if image.size != (1200, 2600):
-                print(f"⚠️ Unexpected image size {image.size}, resizing to 1200x2600")
-                image = image.resize((1200, 2600), Image.LANCZOS)
+            # Image dimensions are now dynamic based on request, verify reasonable size
+            width, height = image.size
+            if width < 100 or height < 100 or width > 5000 or height > 5000:
+                print(f"⚠️ Unusual image size {image.size}, but proceeding...")
             else:
-                print(f"✅ Image already at correct size: {image.size}")
+                print(f"✅ Image size: {image.size}")
             
             # Create grayscale version
             grayscale_image = image.convert('L')
@@ -203,7 +203,7 @@ class StorageService:
             if format not in ['JPEG', 'PNG']:
                 format = 'JPEG'  # Default to JPEG for unsupported formats
             
-            # Save grayscale image with optimized compression for 1200x2600 images
+            # Save grayscale image with optimized compression for custom dimensions
             if format == 'JPEG':
                 grayscale_image.save(grayscale_buffer, format='JPEG', quality=85, optimize=True)
             else:
@@ -380,7 +380,7 @@ class StorageService:
                     'total_scenes': manifest.get('total_scenes', 0),
                     'total_duration': manifest.get('total_duration', 0),
                     'generation_method': manifest.get('generation_method', 'optimized_parallel'),
-                    'image_format': 'grayscale_1200x2600_from_deepai',
+                    'image_format': 'custom_dimensions_from_deepai',
                     'scenes_data': manifest.get('scenes', []),
                     'optimizations': manifest.get('optimizations', []),
                     'ai_models_used': {
