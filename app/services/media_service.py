@@ -30,18 +30,18 @@ class MediaService:
         print(f"✅ MediaService initialized with DeepAI image generation and circuit breaker")
     
     def _check_deepai_circuit(self):
-        """Check if DeepAI circuit breaker should be opened"""
+        """Check if DeepAI circuit breaker should be opened - More lenient with robust retries"""
         current_time = time.time()
         
-        # Reset failures after 5 minutes
-        if current_time - self.deepai_last_failure > 300:
+        # Reset failures after 3 minutes (reduced from 5)
+        if current_time - self.deepai_last_failure > 180:
             self.deepai_failures = 0
             self.deepai_circuit_open = False
         
-        # Open circuit if too many failures
-        if self.deepai_failures > 5:
+        # Open circuit only after more failures (increased from 5 to 10)
+        if self.deepai_failures > 10:
             self.deepai_circuit_open = True
-            print("🚨 DeepAI circuit breaker opened - using placeholders")
+            print("🚨 DeepAI circuit breaker opened after 10 failures - using emergency fallbacks")
         
         return not self.deepai_circuit_open
     
@@ -229,44 +229,110 @@ class MediaService:
                             
                             print(f"🎨 DeepAI prompt for scene {scene_number}: {enhanced_prompt[:100]}...")
                             
-                            # Faster retry logic
-                            max_retries = 3  # Increased retries
+                            # Enhanced retry logic with multiple strategies
+                            max_retries = 5  # Increased from 3 to 5 retries
+                            base_delay = 1.0  # Base delay between retries
+                            
                             for attempt in range(max_retries):
                                 try:
+                                    print(f"🔄 DeepAI attempt {attempt + 1}/{max_retries} for scene {scene_number}")
+                                    
+                                    # Vary the prompt slightly on retries to increase success chance
+                                    if attempt > 0:
+                                        # Add variation to prompt
+                                        prompt_variations = [
+                                            f"High quality digital art, children's book style: {safe_visual_prompt}",
+                                            f"Colorful illustration for kids, cartoon style: {safe_visual_prompt}",
+                                            f"Beautiful children's book artwork: {safe_visual_prompt}",
+                                            f"Friendly cartoon illustration: {safe_visual_prompt}",
+                                            f"Vibrant kids book art: {safe_visual_prompt}"
+                                        ]
+                                        current_prompt = prompt_variations[attempt % len(prompt_variations)]
+                                    else:
+                                        current_prompt = enhanced_prompt
+                                    
+                                    current_prompt = current_prompt[:400].replace('"', "'").replace('\n', ' ').replace('\r', ' ')
+                                    
                                     response = requests.post(
                                         self.deepai_url,
-                                        data={'text': enhanced_prompt},
+                                        data={'text': current_prompt},
                                         headers={'api-key': self.deepai_api_key},
-                                        timeout=20  # Reduced from 30 to 20 seconds
+                                        timeout=25  # Increased timeout for better success rate
                                     )
                                     
                                     if response.status_code == 200:
                                         result = response.json()
                                         if 'output_url' in result:
-                                            # Download with shorter timeout
-                                            image_response = requests.get(result['output_url'], timeout=15)
+                                            # Download with increased timeout
+                                            image_response = requests.get(result['output_url'], timeout=20)
                                             if image_response.status_code == 200:
+                                                print(f"✅ DeepAI success on attempt {attempt + 1} for scene {scene_number}")
                                                 # Optimized image processing with custom dimensions
                                                 return self._process_image_fast(image_response.content, target_dimensions)
-                                            
-                                    # Quick retry without long delays
+                                            else:
+                                                print(f"⚠️ Failed to download image on attempt {attempt + 1}: HTTP {image_response.status_code}")
+                                        else:
+                                            print(f"⚠️ No output_url in response on attempt {attempt + 1}: {result}")
+                                    else:
+                                        print(f"⚠️ DeepAI API error on attempt {attempt + 1}: HTTP {response.status_code}")
+                                        print(f"Response: {response.text[:200]}...")
+                                    
+                                    # Progressive delay between retries (exponential backoff)
                                     if attempt < max_retries - 1:
-                                        time.sleep(0.5)  # Reduced from 2 seconds
+                                        delay = base_delay * (2 ** attempt)  # 1s, 2s, 4s, 8s
+                                        print(f"⏳ Waiting {delay}s before retry...")
+                                        time.sleep(delay)
                                         
-                                except requests.RequestException:
+                                except requests.RequestException as e:
+                                    print(f"⚠️ Network error on attempt {attempt + 1}: {str(e)}")
                                     if attempt < max_retries - 1:
-                                        time.sleep(0.5)
+                                        delay = base_delay * (2 ** attempt)
+                                        print(f"⏳ Network retry in {delay}s...")
+                                        time.sleep(delay)
                                         continue
-                                        
-                            raise Exception(f"DeepAI failed after {max_retries} attempts")
+                                except Exception as e:
+                                    print(f"⚠️ Unexpected error on attempt {attempt + 1}: {str(e)}")
+                                    if attempt < max_retries - 1:
+                                        delay = base_delay * (2 ** attempt)
+                                        time.sleep(delay)
+                                        continue
+                            
+                            # If all retries failed, this is a critical error
+                            error_msg = f"❌ CRITICAL: All {max_retries} DeepAI attempts failed for scene {scene_number}"
+                            print(error_msg)
+                            raise Exception(error_msg)
                         
                         image_data = await loop.run_in_executor(None, create_image_with_retries)
                         print(f"✅ Fast DeepAI image generated for scene {scene_number}: {len(image_data)} bytes")
                         return image_data
                         
                     except Exception as e:
-                        print(f"❌ DeepAI error for scene {scene_number}: {str(e)}")
+                        print(f"❌ DeepAI batch processing failed for scene {scene_number}: {str(e)}")
                         self._record_deepai_failure()
+                        
+                        # CRITICAL: Implement emergency fallback - try one more time with simplified prompt
+                        print(f"🚨 EMERGENCY FALLBACK: Trying simplified prompt for scene {scene_number}")
+                        try:
+                            emergency_prompt = f"colorful cartoon illustration for children"
+                            emergency_response = requests.post(
+                                self.deepai_url,
+                                data={'text': emergency_prompt},
+                                headers={'api-key': self.deepai_api_key},
+                                timeout=30
+                            )
+                            
+                            if emergency_response.status_code == 200:
+                                emergency_result = emergency_response.json()
+                                if 'output_url' in emergency_result:
+                                    emergency_image_response = requests.get(emergency_result['output_url'], timeout=25)
+                                    if emergency_image_response.status_code == 200:
+                                        print(f"✅ EMERGENCY FALLBACK SUCCESS for scene {scene_number}")
+                                        return self._process_image_fast(emergency_image_response.content, target_dimensions)
+                        except Exception as fallback_error:
+                            print(f"❌ Emergency fallback also failed for scene {scene_number}: {str(fallback_error)}")
+                        
+                        # Only use placeholder as absolute last resort
+                        print(f"🔴 ABSOLUTE LAST RESORT: Using placeholder for scene {scene_number}")
                         return self._create_placeholder_image(target_dimensions)
                                     
                         
@@ -378,42 +444,105 @@ class MediaService:
             loop = asyncio.get_event_loop()
             
             def create_and_resize_image():
-                # DeepAI API request
-                response = requests.post(
-                    self.deepai_url,
-                    data={'text': enhanced_prompt},
-                    headers={'api-key': self.deepai_api_key}
-                )
+                # Enhanced retry logic for single image generation
+                max_retries = 5
+                base_delay = 1.0
                 
-                if response.status_code != 200:
-                    raise Exception(f"DeepAI API error {response.status_code}: {response.text}")
-                
-                result = response.json()
-                if 'output_url' not in result:
-                    raise Exception(f"DeepAI response missing output_url: {result}")
-                
-                # Download the generated image
-                image_url = result['output_url']
-                image_response = requests.get(image_url)
-                if image_response.status_code != 200:
-                    raise Exception(f"Failed to download image from {image_url}")
-                
-                image_data = image_response.content
-                
-                # Resize to custom dimensions using PIL
-                image = Image.open(io.BytesIO(image_data))
-                resized_image = image.resize(target_dimensions, Image.LANCZOS)
-                
-                # Save resized image back to bytes
-                output_buffer = io.BytesIO()
-                
-                # Convert RGBA to RGB if needed for JPEG compatibility
-                if resized_image.mode in ('RGBA', 'LA', 'P'):
-                    resized_image = resized_image.convert('RGB')
-                
-                resized_image.save(output_buffer, format='JPEG', quality=85, optimize=True)
-                
-                return output_buffer.getvalue()
+                for attempt in range(max_retries):
+                    try:
+                        print(f"🔄 Single DeepAI attempt {attempt + 1}/{max_retries} for scene {scene_number}")
+                        
+                        # Vary the prompt on retries
+                        if attempt > 0:
+                            prompt_variations = [
+                                f"High quality digital art, children's book style: {visual_prompt}",
+                                f"Colorful illustration for kids, cartoon style: {visual_prompt}",
+                                f"Beautiful children's book artwork: {visual_prompt}",
+                                f"Friendly cartoon illustration: {visual_prompt}",
+                                f"Vibrant kids book art: {visual_prompt}"
+                            ]
+                            current_prompt = prompt_variations[attempt % len(prompt_variations)]
+                        else:
+                            current_prompt = enhanced_prompt
+                        
+                        # DeepAI API request with current prompt
+                        response = requests.post(
+                            self.deepai_url,
+                            data={'text': current_prompt},
+                            headers={'api-key': self.deepai_api_key},
+                            timeout=30
+                        )
+                        
+                        if response.status_code != 200:
+                            print(f"⚠️ DeepAI API error attempt {attempt + 1}: HTTP {response.status_code}")
+                            raise Exception(f"DeepAI API error {response.status_code}: {response.text}")
+                        
+                        result = response.json()
+                        if 'output_url' not in result:
+                            print(f"⚠️ No output_url in response attempt {attempt + 1}: {result}")
+                            raise Exception(f"DeepAI response missing output_url: {result}")
+                        
+                        # Download the generated image
+                        image_url = result['output_url']
+                        image_response = requests.get(image_url, timeout=25)
+                        if image_response.status_code != 200:
+                            print(f"⚠️ Failed to download image attempt {attempt + 1}: HTTP {image_response.status_code}")
+                            raise Exception(f"Failed to download image from {image_url}")
+                        
+                        image_data = image_response.content
+                        
+                        # Resize to custom dimensions using PIL
+                        image = Image.open(io.BytesIO(image_data))
+                        resized_image = image.resize(target_dimensions, Image.LANCZOS)
+                        
+                        # Save resized image back to bytes
+                        output_buffer = io.BytesIO()
+                        
+                        # Convert RGBA to RGB if needed for JPEG compatibility
+                        if resized_image.mode in ('RGBA', 'LA', 'P'):
+                            resized_image = resized_image.convert('RGB')
+                        
+                        resized_image.save(output_buffer, format='JPEG', quality=85, optimize=True)
+                        resized_image_data = output_buffer.getvalue()
+                        
+                        print(f"✅ Single DeepAI success on attempt {attempt + 1} for scene {scene_number}")
+                        return resized_image_data
+                        
+                    except Exception as e:
+                        print(f"⚠️ Single DeepAI attempt {attempt + 1} failed: {str(e)}")
+                        
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)
+                            print(f"⏳ Retrying in {delay}s...")
+                            time.sleep(delay)
+                        else:
+                            # Final attempt with emergency fallback
+                            print(f"🚨 FINAL EMERGENCY ATTEMPT for scene {scene_number}")
+                            try:
+                                emergency_response = requests.post(
+                                    self.deepai_url,
+                                    data={'text': "colorful cartoon illustration for children"},
+                                    headers={'api-key': self.deepai_api_key},
+                                    timeout=35
+                                )
+                                
+                                if emergency_response.status_code == 200:
+                                    emergency_result = emergency_response.json()
+                                    if 'output_url' in emergency_result:
+                                        emergency_image_response = requests.get(emergency_result['output_url'], timeout=30)
+                                        if emergency_image_response.status_code == 200:
+                                            print(f"✅ EMERGENCY SUCCESS for scene {scene_number}")
+                                            emergency_image = Image.open(io.BytesIO(emergency_image_response.content))
+                                            emergency_resized = emergency_image.resize(target_dimensions, Image.LANCZOS)
+                                            if emergency_resized.mode in ('RGBA', 'LA', 'P'):
+                                                emergency_resized = emergency_resized.convert('RGB')
+                                            emergency_buffer = io.BytesIO()
+                                            emergency_resized.save(emergency_buffer, format='JPEG', quality=85)
+                                            return emergency_buffer.getvalue()
+                            except Exception as emergency_error:
+                                print(f"❌ Emergency attempt failed: {str(emergency_error)}")
+                            
+                            raise Exception(f"All {max_retries} attempts + emergency failed for scene {scene_number}")
             
             # Execute in thread pool
             resized_image_data = await loop.run_in_executor(None, create_and_resize_image)
@@ -438,7 +567,63 @@ class MediaService:
                 detail=f"DeepAI image generation failed for scene {scene_number}: {str(e)}"
             )
     
+    async def regenerate_failed_scene_image(self, visual_prompt: str, scene_number: int, target_dimensions: tuple = (1200, 2600), max_attempts: int = 10) -> bytes:
+        """
+        Emergency method to regenerate a specific scene image with maximum retry attempts
+        Use this when a scene absolutely must have a proper image
+        """
+        print(f"🚨 EMERGENCY REGENERATION for scene {scene_number} with {max_attempts} attempts")
+        
+        base_prompts = [
+            f"Children's book illustration: {visual_prompt}",
+            f"Colorful cartoon for kids: {visual_prompt}",
+            f"Friendly illustration: {visual_prompt}",
+            f"Digital art for children: {visual_prompt}",
+            f"Cartoon style drawing: {visual_prompt}",
+            "colorful cartoon illustration for children",
+            "friendly children's book artwork",
+            "happy cartoon character illustration",
+            "bright colorful kids illustration",
+            "simple cartoon drawing for children"
+        ]
+        
+        for attempt in range(max_attempts):
+            try:
+                current_prompt = base_prompts[attempt % len(base_prompts)]
+                print(f"🔄 Emergency attempt {attempt + 1}/{max_attempts}: {current_prompt[:50]}...")
+                
+                response = requests.post(
+                    self.deepai_url,
+                    data={'text': current_prompt},
+                    headers={'api-key': self.deepai_api_key},
+                    timeout=40
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if 'output_url' in result:
+                        image_response = requests.get(result['output_url'], timeout=35)
+                        if image_response.status_code == 200:
+                            processed_image = self._process_image_fast(image_response.content, target_dimensions)
+                            print(f"✅ EMERGENCY SUCCESS on attempt {attempt + 1} for scene {scene_number}")
+                            return processed_image
+                
+                # Wait between attempts
+                if attempt < max_attempts - 1:
+                    wait_time = min(2 * (attempt + 1), 10)  # Progressive wait, max 10s
+                    print(f"⏳ Waiting {wait_time}s before next emergency attempt...")
+                    time.sleep(wait_time)
+                    
+            except Exception as e:
+                print(f"⚠️ Emergency attempt {attempt + 1} failed: {str(e)}")
+                continue
+        
+        print(f"❌ EMERGENCY REGENERATION FAILED after {max_attempts} attempts for scene {scene_number}")
+        return self._create_placeholder_image(target_dimensions)
+
     async def generate_image(self, visual_prompt: str, scene_number: int, child_image_url: str = None, target_dimensions: tuple = (1200, 2600)) -> bytes:
+        """Generate image using DeepAI (face swapping temporarily disabled - main method)"""
+        return await self.generate_image_deepai(visual_prompt, scene_number, child_image_url, target_dimensions)
         """Generate image using DeepAI (face swapping temporarily disabled - main method)"""
         return await self.generate_image_deepai(visual_prompt, scene_number, child_image_url, target_dimensions)
     
